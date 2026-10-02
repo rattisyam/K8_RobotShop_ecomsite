@@ -1,0 +1,2091 @@
+Started First with Infrastructure components:
+
+MongoDB:
+used by:
+    Catalogue ──┐
+                ├──> MongoDB
+    User ───────┘
+
+    Catalogue stores product information.
+
+    User view that information.
+
+    User stores user/account information.
+
+Redis:
+Used by:
+    User ──> Redis
+    Cart ──> Redis
+
+Redis is primarily used for fast temporary/state information
+
+ex: User session and Shopping cart.
+
+note: The important Kubernetes concept here is that Redis must have a stable Kubernetes Service name.
+
+Catalogue:
+Catalogue is a Node.js/Express service.
+
+Catalogue
+   |
+   | MongoDB
+   ▼
+ MongoDB
+
+ ex:
+ GET /catalogue
+
+ This catalougue application talks to MongoDB.
+
+ In Kubernetes:
+
+ catalogue Pod
+     |
+     | DNS
+     |
+     ▼
+catalogue?  <-- service
+Actually the catalogue application needs to resolve:
+    mongodb
+which will be the Kubernetes Service name we create.
+
+User:
+User is also Node.js/Express.
+
+It has two dependencies:
+
+             ┌──> MongoDB
+User ────────┤
+             └──> Redis
+
+Port:
+
+8080
+
+So this is a particularly useful service for learning because 
+you will see one microservice communicating with two different infrastructure services.
+
+
+5. Cart
+
+Cart is another Node.js service.
+
+Cart
+ |
+ | Redis
+ ▼
+Redis
+
+Port:
+
+8080
+
+This is a simple service to understand Kubernetes Service-to-Service communication.
+
+6. Therefore our first Kubernetes deployment
+
+I would structure your repository like this:
+
+robot-shop-k8s/
+│
+├── namespace.yaml
+│
+├── mongodb/
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── pvc.yaml
+│
+├── redis/
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── pvc.yaml
+│
+├── catalogue/
+│   ├── deployment.yaml
+│   └── service.yaml
+│
+├── user/
+│   ├── deployment.yaml
+│   └── service.yaml
+│
+└── cart/
+    ├── deployment.yaml
+    └── service.yaml
+
+
+MongoDB PVC learnings:
+
+
+You are not using AKS. You have built your own 3-node Kubernetes cluster on Ubuntu 24.04 Azure VMs. That explains exactly why disk.csi.azure.com isn't showing under CSIDriver
+
+Your current StorageClasses are:
+
+local-storage
+    ↓
+kubernetes.io/no-provisioner
+
+standard
+    ↓
+disk.csi.azure.com
+
+But:
+kubectl get csidrivers
+shows only 
+
+csi.tigera.io
+
+Therefore Azure Disk CSI has not actually been installed in your cluster.
+
+**This is actually a very good learning opportunity.
+
+    Kubernetes
+   |
+   ├── StorageClass
+   |
+   ├── CSI Driver
+   |
+   ├── Azure Identity/RBAC
+   |
+   ├── Azure Disk
+   |
+   └── PVC/PV
+
+
+
+We need to set this up before deploying MongoDB with Azure persistent storage.
+
+What we need to do
+
+Your desired architecture is:
+
+                        Kubernetes Cluster
+                  ┌─────────────────────┐
+                  │                     │
+                  │   MongoDB Pod       │
+                  │        │            │
+                  │        │ /data/db   │
+                  │        ▼            │
+                  │      PVC            │
+                  │        │            │
+                  │        ▼            │
+                  │       PV            │
+                  │        │            │
+                  └────────┼────────────┘
+                           │
+                     Azure Disk CSI
+                           │
+                           ▼
+                   Azure Managed Disk
+
+The missing component is:
+    Azure Disk CSI Driver
+
+But there is an important Azure identity issue
+
+Because this is self-managed Kubernetes on Azure VMs, Azure doesn't automatically know that your Kubernetes cluster is allowed to create/attach disks.
+
+We need to configure:
+    Kubernetes
+     |
+     ↓
+    Azure Disk CSI Driver
+        |
+        ↓
+    Azure Identity
+        |
+        ↓
+    Azure RBAC
+        |
+        ↓
+    Managed Disk
+
+There are several ways to authenticate the CSI driver with Azure.
+
+For your learning cluster, I recommend using Azure Workload Identity rather than embedding an Azure service-principal secret in Kubernetes.
+
+However, before we configure that, we need to understand how your VMs are authenticated to Azure.
+
+First check your VM identity
+
+SSH into the Kubernetes control-plane/worker VM and run:
+
+azure cli:
+azureuser@devops-agent:~$ az account show --query "{subscriptionId:id,tenantId:tenantId}" -o table
+SubscriptionId                        TenantId
+------------------------------------  ------------------------------------
+f28577aa-ecad-4b8d-a9b7-ee289e3a749c  7ad7c32f-c2c7-4953-afa4-c484be33ecaf
+azureuser@devops-agent:~$
+
+
+azureuser@devops-agent:~$ az vm list -d -o table
+Name          ResourceGroup    PowerState    PublicIps       Fqdns    Location      Zones
+------------  ---------------  ------------  --------------  -------  ------------  -------
+devops-agent  AZURE_K8_RG      VM running    40.80.84.166             centralindia
+k8s-master    AZURE_K8_RG      VM running    20.193.133.250           centralindia  1
+k8s-node1     AZURE_K8_RG      VM running    20.193.153.176           centralindia  1
+k8s-node2     AZURE_K8_RG      VM running    20.40.40.49              centralindia  1
+azureuser@devops-agent:~$
+
+Important: Azure Disk CSI installation:
+I don't recommend blindly running an old installation script.
+
+Before installing it, let's inspect your exact cluster and VM identity configuration.
+
+
+
+azureuser@devops-agent:~$ az vm identity show \
+  --resource-group AZURE_K8_RG \
+  --name k8s-master
+{
+  "principalId": "c255d5b0-d6cf-4f9c-9f1a-fde08c7f1deb",
+  "tenantId": "7ad7c32f-c2c7-4953-afa4-c484be33ecaf",
+  "type": "SystemAssigned"
+}
+azureuser@devops-agent:~$
+
+The open-source Azure Disk CSI driver supports Kubernetes 1.21+ and the CSI driver name is disk.csi.azure.com. It also supports ReadWriteOnce, which is exactly what we need for a single MongoDB instance.
+
+However, there is one important issue: we should not immediately use the master's managed identity just
+ because it exists. The Azure Disk CSI controller needs an Azure identity with appropriate permissions 
+ to create/manage disks. The current driver documentation recommends the identity used by the driver
+  have appropriate permissions on the resource group where managed disks are stored.
+
+For your learning lab, I'd use a User Assigned Managed Identity + Workload Identity rather than embedding a service-principal secret. The Azure Disk CSI project explicitly supports workload identity on self-managed clusters.
+
+azureuser@devops-agent:~$ kubectl get --raw /.well-known/openid-configuration
+{"issuer":"https://kubernetes.default.svc.cluster.local","jwks_uri":"https://10.0.1.4:6443/openid/v1/jwks","response_types_supported":["id_token"],"subject_types_supported":["public"],"id_token_signing_alg_values_supported":["RS256"]}azureuser@devops-agent:~$
+
+checking the master node azure role assignments:
+MASTER_PRINCIPAL_ID=$(az vm identity show \
+  --resource-group AZURE_K8_RG \
+  --name k8s-master \
+  --query principalId -o tsv)
+
+az role assignment list \
+  --assignee "$MASTER_PRINCIPAL_ID" \
+  --all \
+  -o table
+
+  our cluster has OIDC issuer.
+
+
+  conclusion:
+  1. OIDC endpoint exists
+
+Your cluster returns:
+
+issuer: https://kubernetes.default.svc.cluster.local
+jwks_uri: https://10.0.1.4:6443/openid/v1/jwks
+
+So Kubernetes has an OIDC discovery endpoint. However, this is not yet enough to use Azure Workload Identity, because Azure needs to be able to reach/trust the issuer URL. The default kubernetes.default.svc.cluster.local issuer is internal to the cluster.
+
+So I would not proceed with Workload Identity yet.
+
+2. Master identity has no role assignment output
+
+This command:
+
+az role assignment list \
+  --assignee "$MASTER_PRINCIPAL_ID" \
+  --all \
+  -o table
+
+returned nothing.
+
+That means the k8s-master system-assigned identity currently has no Azure RBAC role assignments that the command can see.
+
+
+Instead of trying to introduce several concepts simultaneously:
+
+OIDC
+Azure Workload Identity
+federated credentials
+user-assigned identity
+CSI
+
+I suggest we first use the existing system-assigned identity and grant it the minimum Azure role needed for this lab.
+
+But there is one important detail:
+
+The CSI controller will need the Azure identity available to the VM where the CSI controller runs.
+
+Since your worker VMs currently have no managed identity, we need to decide where the CSI controller runs and how it authenticates to Azure.
+
+For a clean self-managed Kubernetes design, I would actually recommend:
+
+Create one User Assigned Managed Identity specifically for Azure Disk CSI and use it for the CSI controller.
+
+That keeps your Kubernetes control-plane VM identity separate from storage permissions.
+
+
+Proposed setup:
+We'll create:
+
+Azure
+│
+├── User Assigned Identity
+│      │
+│      └── Azure RBAC permission
+│
+└── AZURE_K8_RG
+       │
+       ├── k8s-master
+       ├── k8s-node1
+       ├── k8s-node2
+       │
+       └── dynamically created Managed Disk
+
+Then:
+MongoDB
+   │
+   ▼
+PVC
+   │
+   ▼
+azure-disk StorageClass
+   │
+   ▼
+Azure Disk CSI
+   │
+   ▼
+User Assigned Managed Identity
+   │
+   ▼
+Azure API
+   │
+   ▼
+Managed Disk
+
+
+This is much closer to an enterprise setup and will also teach you Azure identity + Kubernetes CSI, which is useful for your DevOps Architect work.
+
+
+Before we create anything
+
+Let's first confirm the resource group's subscription and ID.
+
+Run:
+
+ az group show \
+  --name AZURE_K8_RG \
+  --query "{name:name,id:id,location:location}" \
+  -o table
+Name         Location
+-----------  ------------
+Azure_K8_RG  centralindia
+
+
+And:
+
+ az account show \
+  --query "{subscriptionId:id,tenantId:tenantId,name:name}" \
+  -o table
+SubscriptionId                        TenantId                              Name
+------------------------------------  ------------------------------------  -------------
+f28577aa-ecad-4b8d-a9b7-ee289e3a749c  7ad7c32f-c2c7-4953-afa4-c484be33ecaf  Pay-As-You-Go
+
+
+Also run:
+
+azureuser@devops-agent:~$ az vm show \
+  --resource-group AZURE_K8_RG \
+  --name k8s-master \
+  --query "{name:name,identity:identity}" \
+  -o json
+{
+  "identity": {
+    "principalId": "c255d5b0-d6cf-4f9c-9f1a-fde08c7f1deb",
+    "tenantId": "7ad7c32f-c2c7-4953-afa4-c484be33ecaf",
+    "type": "SystemAssigned"
+  },
+  "name": "k8s-master"
+}
+azureuser@devops-agent:~$
+
+
+
+
+
+One correction to our previous direction
+
+I would not use the master's SystemAssigned identity as the final design. Your master currently has an identity, but no role assignment. Instead, for this learning project, let's create a dedicated User Assigned Managed Identity for Azure Disk CSI.
+
+
+That gives you a useful real-world pattern:
+Kubernetes
+    │
+    │ CSI request
+    ▼
+Azure Disk CSI Controller
+    │
+    │ Azure authentication
+    ▼
+UAMI: robotshop-azuredisk-csi
+    │
+    │ Contributor on Azure_K8_RG
+    ▼
+Azure Managed Disk
+
+The Azure Disk CSI project's current workload-identity documentation specifically describes using a User Assigned Managed Identity and granting it access to the resource group containing the disks.
+
+Therefore, rather than forcing Workload Identity into your lab right now, we have two possible paths:
+
+Option A — Simpler learning path
+
+Use Azure VM managed identity with the Azure Disk CSI driver's cloud configuration.
+
+Azure VM identity
+       ↓
+Azure Disk CSI
+       ↓
+Azure Managed Disk
+
+This is simpler and lets you focus on:
+
+CSI → StorageClass → PVC → PV → Azure Disk → MongoDB
+Option B — Advanced identity path
+
+Configure proper OIDC + Azure Workload Identity:
+
+Kubernetes ServiceAccount
+       ↓
+OIDC token
+       ↓
+Federated Identity Credential
+       ↓
+User Assigned Managed Identity
+       ↓
+Azure Disk
+
+This is a very useful DevOps Architect topic, but it adds another major learning area before we even get to MongoDB.
+
+
+before proceeding running eblow comamnds on Master:
+Before proceeding, run one final check
+
+We need to see whether your Kubernetes nodes already have the Azure cloud-provider configuration that the open-source Azure Disk CSI driver expects.
+
+On k8s-master, run:
+
+sudo ls -l /etc/kubernetes/
+
+Then:
+
+sudo find /etc/kubernetes -maxdepth 2 -type f \
+  \( -name "azure.json" -o -name "cloud.conf" -o -name "cloud-config" \) \
+  -print
+
+And on the master:
+
+sudo ls -l /etc/kubernetes/azure.json
+
+If the last command says:
+
+No such file or directory
+
+that's completely okay.
+
+Don't create azure.json manually yet.
+
+azureuser@k8s-master:~$ sudo ls -l /etc/kubernetes/
+total 44
+-rw------- 1 root root 5632 Sep 30 09:54 admin.conf
+-rw------- 1 root root 5656 Sep 30 09:54 controller-manager.conf
+-rw------- 1 root root 1964 Sep 30 09:54 kubelet.conf
+drwx------ 2 root root 4096 Sep 30 09:54 manifests
+drwxr-xr-x 3 root root 4096 Sep 30 09:54 pki
+-rw------- 1 root root 5608 Sep 30 09:54 scheduler.conf
+-rw------- 1 root root 5660 Sep 30 09:54 super-admin.conf
+azureuser@k8s-master:~$ sudo find /etc/kubernetes -maxdepth 2 -type f \
+  \( -name "azure.json" -o -name "cloud.conf" -o -name "cloud-config" \) \
+  -print
+azureuser@k8s-master:~$ sudo ls -l /etc/kubernetes/azure.json
+ls: cannot access '/etc/kubernetes/azure.json': No such file or directory
+azureuser@k8s-master:~$
+
+
+
+flow:
+             PVC
+              │
+              ▼
+       Azure StorageClass
+              │
+              ▼
+    Azure Disk CSI Driver
+              │
+              ▼
+     Azure Managed Disk
+              │
+              ▼
+       PV automatically
+              │
+              ▼
+            PVC
+
+STEP 1 — Create a User Assigned Managed Identity
+
+We will create a dedicated identity for Azure Disk CSI.
+
+Why?
+
+The CSI driver needs to talk to Azure and create/manage disks.
+
+Instead of putting an Azure username/password/client secret into Kubernetes, we'll use a Managed Identity.
+
+Create it from your DevOps Agent:
+
+az identity create \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --location centralindia
+
+
+
+Verify
+az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  -o table
+
+You should see information including:
+
+ClientId
+PrincipalId
+TenantId
+
+Get them individually:
+
+export UAMI_CLIENT_ID=$(az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --query clientId -o tsv)
+export UAMI_PRINCIPAL_ID=$(az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --query principalId -o tsv)
+export TENANT_ID=$(az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --query tenantId -o tsv)
+
+Check:
+
+echo $UAMI_CLIENT_ID
+echo $UAMI_PRINCIPAL_ID
+echo $TENANT_ID
+Remember the difference
+Client ID       → identifies the identity to applications
+Principal ID    → Azure AD service principal/object identity
+Tenant ID       → your Entra ID tenant
+
+
+
+
+================outputs steps1============
+azureuser@devops-agent:~$ az identity create \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --location centralindia
+{
+  "assignmentRestrictions": {
+    "providers": []
+  },
+  "clientId": "fe3fa033-8461-4576-8467-d4a49365e827",
+  "id": "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourcegroups/Azure_K8_RG/providers/Microsoft.ManagedIdentity/userAssignedIdentities/azuredisk-csi",
+  "isolationScope": "None",
+  "location": "centralindia",
+  "name": "azuredisk-csi",
+  "principalId": "57bf0fb2-e183-4b70-8d49-1709079a9a2f",
+  "resourceGroup": "Azure_K8_RG",
+  "tags": {},
+  "tenantId": "7ad7c32f-c2c7-4953-afa4-c484be33ecaf",
+  "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+}
+
+verification of above creation of managed idenaty:
+azureuser@devops-agent:~$ az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  -o table
+ClientId                              IsolationScope    Location      Name           PrincipalId                           ResourceGroup    TenantId
+------------------------------------  ----------------  ------------  -------------  ------------------------------------  ---------------  ------------------------------------
+fe3fa033-8461-4576-8467-d4a49365e827  None              centralindia  azuredisk-csi  57bf0fb2-e183-4b70-8d49-1709079a9a2f  Azure_K8_RG      7ad7c32f-c2c7-4953-afa4-c484be33ecaf
+
+azureuser@devops-agent:~$ export UAMI_CLIENT_ID=$(az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --query clientId -o tsv)
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$ export UAMI_PRINCIPAL_ID=$(az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --query principalId -o tsv)
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$ export TENANT_ID=$(az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --query tenantId -o tsv)
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$ echo $UAMI_CLIENT_ID
+echo $UAMI_PRINCIPAL_ID
+echo $TENANT_ID
+fe3fa033-8461-4576-8467-d4a49365e827
+57bf0fb2-e183-4b70-8d49-1709079a9a2f
+7ad7c32f-c2c7-4953-afa4-c484be33ecaf
+
+
+==========================================
+STEP 2 — Give the Managed Identity Azure permission
+
+Now the identity exists, but it cannot do anything yet.
+
+We need to give it permission on:
+
+Azure_K8_RG
+
+For this learning lab, we'll use Contributor because it is simple and is the role referenced by the Azure Disk CSI driver's self-managed documentation for the resource group containing the disks.
+
+Run:
+
+export RG_ID=$(az group show \
+  --name Azure_K8_RG \
+  --query id -o tsv)
+
+Check:
+
+echo $RG_ID
+
+It should look like:
+
+/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourceGroups/Azure_K8_RG
+
+Now assign Contributor:
+
+az role assignment create \
+  --assignee-object-id "$UAMI_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role Contributor \
+  --scope "$RG_ID"
+Why?
+
+This means:
+
+azuredisk-csi identity
+       │
+       │ Contributor
+       ▼
+Azure_K8_RG
+       │
+       ├── Create disk
+       ├── Delete disk
+       ├── Attach disk
+       └── Manage disk
+
+For a learning lab this is easy. Later, you can learn least-privilege Azure RBAC.
+
+Verify
+az role assignment list \
+  --assignee "$UAMI_PRINCIPAL_ID" \
+  --scope "$RG_ID" \
+  -o table
+
+You should see:
+
+
+
+===============================================
+step2 o/p:
+
+azureuser@devops-agent:~$ export RG_ID=$(az group show \
+  --name Azure_K8_RG \
+  --query id -o tsv)
+azureuser@devops-agent:~$ export RG_ID=$(az group show \
+  --name Azure_K8_RG \
+  --query id -o tsv)^C
+azureuser@devops-agent:~$ echo $RG_ID
+/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourceGroups/Azure_K8_RG
+azureuser@devops-agent:~$
+
+Now assign Contributor:
+azureuser@devops-agent:~$ az role assignment create \
+  --assignee-object-id "$UAMI_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role Contributor \
+  --scope "$RG_ID"
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-10-02T11:19:19.516410+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,
+  "id": "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourceGroups/Azure_K8_RG/providers/Microsoft.Authorization/roleAssignments/58d4efd2-9d97-4ed0-a0d2-18357952bcc2",
+  "name": "58d4efd2-9d97-4ed0-a0d2-18357952bcc2",
+  "principalId": "57bf0fb2-e183-4b70-8d49-1709079a9a2f",
+  "principalType": "ServicePrincipal",
+  "resourceGroup": "Azure_K8_RG",
+  "roleDefinitionId": "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c",
+  "scope": "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourceGroups/Azure_K8_RG",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "374a6b15-fad3-4c6b-abe3-ea8706700fb6",
+  "updatedOn": "2026-10-02T11:19:19.845416+00:00"
+}
+
+
+verify:
+azureuser@devops-agent:~$ az role assignment list \
+  --assignee "$UAMI_PRINCIPAL_ID" \
+  --scope "$RG_ID" \
+  -o table
+Principal                             Role         Scope
+------------------------------------  -----------  ------------------------------------------------------------------------------
+fe3fa033-8461-4576-8467-d4a49365e827  Contributor  /subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourceGroups/Azure_K8_RG
+azureuser@devops-agent:~$
+
+
+
+========================================================
+Contributor
+STEP 3 — Attach this Managed Identity to your Kubernetes VMs
+
+This step is important for your self-managed cluster.
+
+Your current situation:
+
+k8s-master  → SystemAssigned identity
+k8s-node1   → no identity
+k8s-node2   → no identity
+
+We will attach the same UAMI to all three Kubernetes VMs.
+
+Why?
+
+The Azure Disk CSI driver has controller and node components. The controller needs Azure API access for provisioning, while node components need Azure access for disk operations. Using the same UAMI across the Kubernetes VMs keeps this lab simple.
+
+Get the UAMI resource ID:
+
+export UAMI_ID=$(az identity show \
+  --name azuredisk-csi \
+  --resource-group Azure_K8_RG \
+  --query id -o tsv)
+
+Check:
+
+echo $UAMI_ID
+
+Now attach it to master:
+
+az vm identity assign \
+  --resource-group Azure_K8_RG \
+  --name k8s-master \
+  --identities "$UAMI_ID"
+
+Attach to worker 1:
+
+az vm identity assign \
+  --resource-group Azure_K8_RG \
+  --name k8s-node1 \
+  --identities "$UAMI_ID"
+
+Attach to worker 2:
+
+az vm identity assign \
+  --resource-group Azure_K8_RG \
+  --name k8s-node2 \
+  --identities "$UAMI_ID"
+Verify
+az vm identity show \
+  --resource-group Azure_K8_RG \
+  --name k8s-node1
+
+and:
+
+az vm identity show \
+  --resource-group Azure_K8_RG \
+  --name k8s-node2
+
+You should now see:
+
+type: UserAssigned
+userAssignedIdentities:
+   ...
+
+Note: your existing SystemAssigned identity on k8s-master can remain. We are adding the UAMI; we are not replacing it.
+=================step 3 output===============
+azureuser@devops-agent:~$ az vm identity assign \
+  --resource-group Azure_K8_RG \
+  --name k8s-master \
+  --identities "$UAMI_ID"
+{
+  "systemAssignedIdentity": "c255d5b0-d6cf-4f9c-9f1a-fde08c7f1deb",
+  "userAssignedIdentities": {
+    "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourcegroups/Azure_K8_RG/providers/Microsoft.ManagedIdentity/userAssignedIdentities/azuredisk-csi": {
+      "clientId": "fe3fa033-8461-4576-8467-d4a49365e827",
+      "principalId": "57bf0fb2-e183-4b70-8d49-1709079a9a2f"
+    }
+  }
+}
+
+
+azureuser@devops-agent:~$ az vm identity assign \
+  --resource-group Azure_K8_RG \
+  --name k8s-node1 \
+  --identities "$UAMI_ID"
+{
+  "systemAssignedIdentity": "",
+  "userAssignedIdentities": {
+    "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourcegroups/Azure_K8_RG/providers/Microsoft.ManagedIdentity/userAssignedIdentities/azuredisk-csi": {
+      "clientId": "fe3fa033-8461-4576-8467-d4a49365e827",
+      "principalId": "57bf0fb2-e183-4b70-8d49-1709079a9a2f"
+    }
+  }
+}
+
+
+azureuser@devops-agent:~$ az vm identity assign \
+  --resource-group Azure_K8_RG \
+  --name k8s-node2 \
+  --identities "$UAMI_ID"
+{
+  "systemAssignedIdentity": "",
+  "userAssignedIdentities": {
+    "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourcegroups/Azure_K8_RG/providers/Microsoft.ManagedIdentity/userAssignedIdentities/azuredisk-csi": {
+      "clientId": "fe3fa033-8461-4576-8467-d4a49365e827",
+      "principalId": "57bf0fb2-e183-4b70-8d49-1709079a9a2f"
+    }
+  }
+}
+
+verify:
+azureuser@devops-agent:~$ az vm identity show \
+  --resource-group Azure_K8_RG \
+  --name k8s-node1
+{
+  "type": "UserAssigned",
+  "userAssignedIdentities": {
+    "/subscriptions/f28577aa-ecad-4b8d-a9b7-ee289e3a749c/resourcegroups/Azure_K8_RG/providers/Microsoft.ManagedIdentity/userAssignedIdentities/azuredisk-csi": {
+      "clientId": "fe3fa033-8461-4576-8467-d4a49365e827",
+      "principalId": "57bf0fb2-e183-4b70-8d49-1709079a9a2f"
+    }
+  }
+}
+azureuser@dev
+
+=============================================1
+STEP 4 — Prepare Azure cloud configuration
+
+This is the part that is different from local storage.
+
+The Azure Disk CSI driver needs Azure cloud configuration when installed manually on a self-managed cluster. The driver's documentation explicitly lists the cloud-provider configuration as a prerequisite.
+
+We will create an azure.json configuration using the UAMI.
+
+First, create a temporary directory on the master:
+
+ssh azureuser@10.0.1.4
+
+Then:
+
+sudo mkdir -p /etc/kubernetes/azure
+
+Create the configuration:
+
+sudo nano /etc/kubernetes/azure/azure.json
+
+Put:
+
+{
+  "cloud": "AzurePublicCloud",
+  "tenantId": "7ad7c32f-c2c7-4953-afa4-c484be33ecaf",
+  "subscriptionId": "f28577aa-ecad-4b8d-a9b7-ee289e3a749c",
+  "resourceGroup": "Azure_K8_RG",
+  "location": "centralindia",
+  "vmType": "standard",
+  "useManagedIdentityExtension": true,
+  "userAssignedIdentityID": "YOUR_UAMI_CLIENT_ID",
+  "useInstanceMetadata": true
+}
+
+Replace:
+
+YOUR_UAMI_CLIENT_ID
+
+with the value from:
+
+echo $UAMI_CLIENT_ID
+Why?
+
+This tells the Azure cloud provider:
+
+Which Azure cloud?        AzurePublicCloud
+Which tenant?             your tenant
+Which subscription?      your subscription
+Which resource group?    Azure_K8_RG
+Which region?            centralindia
+How authenticate?        Managed Identity
+Which identity?          azuredisk-csi
+
+The cloud-provider Azure configuration supports managed identity settings such as useManagedIdentityExtension and userAssignedIdentityID.
+====STEP-4 OUTPUT==================
+
+===================================
+
+STEP 5 — Make the configuration available to CSI
+
+We don't want to simply put a random file inside one Pod.
+
+We'll create a Kubernetes Secret/ConfigMap containing the cloud configuration so the CSI driver can consume it.
+
+The Azure Disk CSI documentation supports providing the cloud-provider configuration through Kubernetes configuration.
+
+From the master:
+
+kubectl create secret generic azure-cloud-provider \
+  --namespace kube-system \
+  --from-file=azure.json=/etc/kubernetes/azure/azure.json
+
+Verify:
+
+kubectl get secret azure-cloud-provider -n kube-system
+
+You should see:
+
+azure-cloud-provider
+Why Secret?
+
+Because Azure cloud configuration can contain sensitive credentials in some authentication models.
+
+In our case we're using Managed Identity, so we don't have a client secret, but keeping the cloud configuration in a Kubernetes Secret is still appropriate.
+
+=========================STEP-5======================
+azureuser@k8s-master:~$ kubectl create secret generic azure-cloud-provider \
+  --namespace kube-system \
+  --from-file=azure.json=/etc/kubernetes/azure/azure.json
+secret/azure-cloud-provider created
+azureuser@k8s-master:~$ kubectl get secret azure-cloud-provider -n kube-system
+NAME                   TYPE     DATA   AGE
+azure-cloud-provider   Opaque   1      32s
+azureuser@k8s-master:~$
+
+=====================================================
+
+STEP 6 — Install Helm if you don't already have it
+
+The current Azure Disk CSI installation documentation recommends the Helm installation method for customization, and specifically notes that the plain kubectl installation method is intended for certain Azure-managed cluster configurations. Your kubeadm cluster is therefore better suited to Helm.
+
+From the DevOps Agent:
+
+helm version
+
+If Helm is already installed, skip this step.
+
+If not:
+
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+Verify:
+
+helm version
+
+
+
+==================STEP-7 Version=====================
+azureuser@k8s-master:~$ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 12252  100 12252    0     0  37873      0 --:--:-- --:--:-- --:--:-- 37814
+Downloading https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz
+Verifying checksum... Done.
+Preparing to install helm into /usr/local/bin
+helm installed into /usr/local/bin/helm
+azureuser@k8s-master:~$ helm version
+version.BuildInfo{Version:"v3.22.0", GitCommit:"144ca65f8501953fa8b41cd1d37c7223051c85b7", GitTreeState:"clean", GoVersion:"go1.26.8"}
+azureuser@k8s-master:~$
+
+azureuser@devops-agent:~$ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 12252  100 12252    0     0   155k      0 --:--:-- --:--:-- --:--:--  157k
+Downloading https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz
+Verifying checksum... Done.
+Preparing to install helm into /usr/local/bin
+helm installed into /usr/local/bin/helm
+azureuser@devops-agent:~$ helm version
+version.BuildInfo{Version:"v3.22.0", GitCommit:"144ca65f8501953fa8b41cd1d37c7223051c85b7", GitTreeState:"clean", GoVersion:"go1.26.8"}
+azureuser@devops-agent:~$
+
+
+=====================================================
+STEP 7 — Add Azure Disk CSI Helm repository
+
+From DevOps Agent:
+
+helm repo add azuredisk-csi-driver \
+  https://raw.githubusercontent.com/kubernetes-sigs/azuredisk-csi-driver/master/charts
+
+Then:
+
+helm repo update
+
+Check available versions:
+
+helm search repo azuredisk-csi-driver --versions
+
+Your Kubernetes version is:
+
+1.34.12
+
+The current driver project lists v1.34.5 as compatible with Kubernetes 1.21+, so that is a sensible version for this lab.
+
+======================STEP-7 OUTPUT==================
+azureuser@k8s-master:~$ helm repo add azuredisk-csi-driver \
+  https://raw.githubusercontent.com/kubernetes-sigs/azuredisk-csi-driver/master/charts
+"azuredisk-csi-driver" has been added to your repositories
+azureuser@k8s-master:~$ helm repo add azuredisk-csi-driver \
+  https://raw.githubusercontent.com/kubernetes-sigs/azuredisk-csi-driver/master/charts^C
+azureuser@k8s-master:~$ helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "azuredisk-csi-driver" chart repository
+Update Complete. ⎈Happy Helming!⎈
+azureuser@k8s-master:~$ helm search repo azuredisk-csi-driver --versions
+NAME                                            CHART VERSION   APP VERSION     DESCRIPTION
+azuredisk-csi-driver/azuredisk-csi-driver       1.36.0          1.36.0          Azure disk Container Storage Interface (CSI) St...
+azuredisk-csi-driver/azuredisk-csi-driver       1.35.0          1.35.0          Azure disk Container Storage Interface (CSI) St...
+azuredisk-csi-driver/azuredisk-csi-driver       1.34.5          1.34.5          Azure disk Container Storage Interface (CSI) St...
+azuredisk-csi-driver/azuredisk-csi-driver       1.34.4          1.34.4          Azure disk Container Storage Interface (CSI) St...
+azuredisk-csi-driver/azuredisk-csi-driver       1.34.3          1.34.3          Azure disk Container Storage Interface (CSI) St...
+azuredisk-csi-driver/azuredisk-csi-driver       1.34.2          1.34.2          Azure disk Container Storage Interface (CSI) St...
+azuredisk-csi-driver/azuredisk-csi-driver       1.34.1          1.34.1          Azure disk Container Storage Interface (CSI) St...
+azuredisk-csi-driver/azuredisk-csi-driver       1.34.0          1.34.0          Azure disk Container Storage I
+=====================================================
+STEP 8 — Install Azure Disk CSI driver
+
+This is the most important installation step.
+
+We want the CSI driver to know about our cloud configuration Secret.
+
+The chart supports specifying the cloud configuration Secret for the controller and node components.
+
+We'll first inspect the chart's available values rather than blindly guessing:
+
+helm show values \
+  azuredisk-csi-driver/azuredisk-csi-driver \
+  --version v1.34.5 > azuredisk-values.yaml
+
+Then:
+
+grep -n -i "cloudConfig" azuredisk-values.yaml
+
+and:
+
+grep -n -i "controller" azuredisk-values.yaml | head -30
+
+Stop here and send me the output of those two commands.
+
+I'm deliberately stopping at this point because the chart's current values need to match the exact driver version we install. I don't want you to run an invented --set parameter and get a broken CSI installation.
+
+
+==================STEP-8 OUTPUT================================
+azureuser@k8s-master:~$ helm show values \
+  azuredisk-csi-driver/azuredisk-csi-driver \
+  --version v1.34.5 > azuredisk-values.yaml
+azureuser@k8s-master:~$ grep -n -i "cloudConfig" azuredisk-values.yaml
+41:  cloudConfigSecretName: azure-cloud-provider
+42:  cloudConfigSecretNamespace: kube-system
+62:  allowEmptyCloudConfig: false
+143:  cloudConfigSecretName: azure-cloud-provider
+144:  cloudConfigSecretNamespace: kube-system
+148:  allowEmptyCloudConfig: true
+azureuser@k8s-master:~$
+azureuser@k8s-master:~$
+azureuser@k8s-master:~$ grep -n -i "controller" azuredisk-values.yaml | head -30
+31:  controller: csi-azuredisk-controller-sa # Name of Service Account to be created or used
+33:  snapshotController: csi-snapshot-controller-sa # Name of Service Account to be created or used
+39:controller:
+40:  name: csi-azuredisk-controller
+82:    otelServiceName: csi-azuredisk-controller
+97:  hostNetwork: true # this setting could be disabled if controller does not depend on MSI setting
+167:  name: csi-snapshot-controller
+173:    csiSnapshotController:
+174:      repository: /oss/v2/kubernetes-csi/snapshot-controller
+177:  snapshotController:
+178:    name: csi-snapshot-controller
+
+
+conclusion:
+output confirms that the chart already has exactly the parameters we need:
+we don't need to invent any Helm parameters. We can proceed cleanly.
+==============================================================
+
+
+Where we are
+
+You have completed:
+
+✅ Azure CLI
+✅ kubeadm cluster
+✅ UAMI created
+✅ UAMI has Azure permission
+✅ UAMI attached to VMs
+✅ azure.json created
+✅ azure-cloud-provider Secret created
+✅ Helm
+✅ Azure Disk CSI chart identified
+
+now we have to install CSI driver.
+
+STEP 9 — Install Azure Disk CSI Driver:
+8.1 First verify the Secret
+
+From your DevOps Agent:
+
+kubectl get secret azure-cloud-provider -n kube-system
+
+Expected:
+
+NAME                   TYPE     DATA   AGE
+azure-cloud-provider   Opaque   1      ...
+Why?
+
+The CSI controller and node components need the Azure configuration.
+
+We are going to tell Helm:
+
+Use this Secret:
+azure-cloud-provider
+
+in:
+kube-system
+8.2 Install the CSI driver
+
+You already selected version:
+
+v1.34.5
+
+which supports Kubernetes 1.21+, so it is compatible with your Kubernetes 1.34.12 cluster.
+
+Run:
+
+helm install azuredisk-csi-driver \
+  azuredisk-csi-driver/azuredisk-csi-driver \
+  --namespace kube-system \
+  --version v1.34.5 \
+  --set controller.cloudConfigSecretName=azure-cloud-provider \
+  --set controller.cloudConfigSecretNamespace=kube-system \
+  --set node.cloudConfigSecretName=azure-cloud-provider \
+  --set node.cloudConfigSecretNamespace=kube-system
+What this command does
+
+Think of it simply as:
+
+helm install
+     │
+     ▼
+Azure Disk CSI Driver
+     │
+     ├── Controller
+     │     └── creates/deletes Azure disks
+     │
+     └── Node Driver
+           └── attaches/mounts disks on nodes
+
+The important part is:
+
+--set controller.cloudConfigSecretName=azure-cloud-provider
+
+and:
+
+--set node.cloudConfigSecretName=azure-cloud-provider
+
+We're telling both CSI components where their Azure configuration is stored.
+
+STEP 8.3 — Check Helm installation
+
+Run:
+
+helm list -n kube-system
+
+You should see something similar to:
+
+NAME                  NAMESPACE     STATUS
+azuredisk-csi-driver  kube-system   deployed
+
+Then:
+
+helm status azuredisk-csi-driver -n kube-system
+
+You want:
+
+STATUS: deployed
+STEP 8.4 — Check CSI Pods
+
+Run:
+
+kubectl get pods -n kube-system -o wide | grep -i azuredisk
+
+You should see components similar to:
+
+csi-azuredisk-controller-xxxxx
+csi-azuredisk-node-xxxxx
+csi-azuredisk-node-xxxxx
+csi-azuredisk-node-xxxxx
+
+The important concept is:
+
+Controller → usually Deployment
+Node       → DaemonSet
+
+The node driver should run on your Kubernetes nodes.
+
+STEP 8.5 — Check DaemonSet
+
+Run:
+
+kubectl get daemonset -n kube-system | grep -i azuredisk
+
+You should see something similar to:
+
+csi-azuredisk-node
+
+Then:
+
+kubectl get daemonset csi-azuredisk-node -n kube-system
+
+Ideally:
+
+DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE
+3         3         3       3            3
+
+Because you have:
+
+k8s-master
+k8s-node1
+k8s-node2
+STEP 8.6 — Check the CSI driver registration
+
+This is our most important checkpoint.
+
+Run:
+
+kubectl get csidrivers
+
+Previously you had:
+
+NAME
+csi.tigera.io
+
+Now we want:
+
+NAME
+csi.tigera.io
+disk.csi.azure.com
+
+If you see:
+
+disk.csi.azure.com
+
+🎉 Azure Disk CSI is registered with Kubernetes.
+
+The driver's official plugin name is disk.csi.azure.com.
+
+STEP 8.7 — Check CSI controller logs
+
+Before creating a PVC, let's make sure the driver can actually communicate with Azure.
+
+Find the controller:
+
+kubectl get pods -n kube-system | grep csi-azuredisk-controller
+
+Then use the actual pod name:
+
+kubectl logs -n kube-system <CONTROLLER-POD-NAME> -c azuredisk
+
+For example:
+
+kubectl logs -n kube-system csi-azuredisk-controller-xxxxx -c azuredisk
+What are we looking for?
+
+We don't want errors such as:
+
+authentication failed
+
+or:
+
+failed to get cloud config
+
+or:
+
+AuthorizationFailed
+
+or:
+
+ManagedIdentityCredential authentication failed
+
+Some normal startup messages are expected.
+
+STEP 8.8 — Check the node driver logs
+
+Run:
+
+kubectl get pods -n kube-system -o wide | grep csi-azuredisk-node
+
+Pick one node pod:
+
+kubectl logs -n kube-system <NODE-POD-NAME> -c azuredisk
+
+Again, we're looking for authentication/configuration errors.
+
+===================STEP 9 OUTPUT============================
+azureuser@devops-agent:~$ helm install azuredisk-csi-driver \
+  azuredisk-csi-driver/azuredisk-csi-driver \
+  --namespace kube-system \
+  --version v1.34.5 \
+  --set controller.cloudConfigSecretName=azure-cloud-provider \
+  --set controller.cloudConfigSecretNamespace=kube-system \
+  --set node.cloudConfigSecretName=azure-cloud-provider \
+  --set node.cloudConfigSecretNamespace=kube-system
+I1002 11:45:55.036474    5092 warnings.go:107] "Warning: spec.template.spec.containers[2].ports[0]: duplicate port name \"healthz\" with spec.template.spec.containers[1].ports[0], services and probes that select ports by name will use spec.template.spec.containers[1].ports[0]"
+NAME: azuredisk-csi-driver
+LAST DEPLOYED: Fri Oct  2 11:45:54 2026
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+The Azure Disk CSI Driver is getting deployed to your cluster.
+
+To check Azure Disk CSI Driver pods status, please run:
+
+  kubectl --namespace=kube-system get pods --selector="app.kubernetes.io/name=azuredisk-csi-driver" --watch
+azureuser@devops-agent:~$
+
+  kubectl --namespace=kube-system get pods --selector="app.kubernetes.io/name=azuredisk-csi-driver" --watch
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$ helm status azuredisk-csi-driver -n kube-system
+NAME: azuredisk-csi-driver
+LAST DEPLOYED: Fri Oct  2 11:45:54 2026
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+The Azure Disk CSI Driver is getting deployed to your cluster.
+
+To check Azure Disk CSI Driver pods status, please run:
+
+
+azureuser@devops-agent:~$ kubectl get pods -n kube-system -o wide | grep -i azuredisk
+csi-azuredisk-controller-544985c75f-z8qsv   4/6     CrashLoopBackOff   5 (6s ago)    69s    10.0.1.6          k8s-node2    <none>           <none>
+csi-azuredisk-controller-544985c75f-zzbk9   5/6     CrashLoopBackOff   6 (3s ago)    69s    10.0.1.5          k8s-node1    <none>           <none>
+csi-azuredisk-node-4r5t8                    3/3     Running            0             69s    10.0.1.5          k8s-node1    <none>           <none>
+csi-azuredisk-node-7g2lf                    3/3     Running            0             69s    10.0.1.6          k8s-node2    <none>           <none>
+csi-azuredisk-node-l8vcr                    3/3     Running            0             69s    10.0.1.4          k8s-master   <none>           <none>
+azureuser@devops-agent:~$ kubectl get pods -n kube-system -o wide | grep -i azuredisk^C
+azureuser@devops-agent:~$ kubectl get daemonset -n kube-system | grep -i azuredisk
+csi-azuredisk-node       3         3         3       3            3           kubernetes.io/os=linux     87s
+csi-azuredisk-node-win   0         0         0       0            0           kubernetes.io/os=windows   87s
+azureuser@devops-agent:~$ kubectl get daemonset -n kube-system | grep -i azuredisk^C
+azureuser@devops-agent:~$ kubectl get csidrivers
+NAME                 ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENREQUESTS   REQUIRESREPUBLISH   MODES        AGE
+csi.tigera.io        true             true             false             <unset>         false               Ephemeral    2d1h
+disk.csi.azure.com   true             false            false             <unset>         false               Persistent   99s
+
+============================================================
+
+
+csi-azuredisk-controler pods are in crashloop back -- fixing that now:
+azureuser@devops-agent:~$ kubectl get secret azure-cloud-provider \
+  -n kube-system \
+  -o jsonpath='{.data}'
+{"azure.json":"ewogICJjbG91ZCI6ICJBenVyZVB1YmxpY0Nsb3VkIiwKICAidGVuYW50SWQiOiAiN2FkN2MzMmYtYzJjNy00OTUzLWFmYTQtYzQ4NGJlMzNlY2FmIiwKICAic3Vic2NyaXB0aW9uSWQiOiAiZjI4NTc3YWEtZWNhZC00YjhkLWE5YjctZWUyODllM2E3NDljIiwKICAicmVzb3VyY2VHcm91cCI6ICJBenVyZV9LOF9SRyIsCiAgImxvY2F0aW9uIjogImNlbnRyYWxpbmRpYSIsCiAgInZtVHlwZSI6ICJzdGFuZGFyZCIsCiAgInVzZU1hbmFnZWRJZGVudGl0eUV4dGVuc2lvbiI6IHRydWUsCiAgInVzZXJBc3NpZ25lZElkZW50aXR5SUQiOiAiZmUzZmEwMzMtODQ2MS00NTc2LTg0NjctZDRhNDkzNjVlODI3IiwKICAidXNlSW5zdGFuY2VNZXRhZGF0YSI6IHRydWUKfQo="}azureuser@devkubectl get secret azure-cloud-provider \ud-provider \
+  -n kube-system \
+  -o jsonpath='{.data.azure\.json}' | base64 -d
+{
+  "cloud": "AzurePublicCloud",
+  "tenantId": "7ad7c32f-c2c7-4953-afa4-c484be33ecaf",
+  "subscriptionId": "f28577aa-ecad-4b8d-a9b7-ee289e3a749c",
+  "resourceGroup": "Azure_K8_RG",
+  "location": "centralindia",
+  "vmType": "standard",
+  "useManagedIdentityExtension": true,
+  "userAssignedIdentityID": "fe3fa033-8461-4576-8467-d4a49365e827",
+  "useInstanceMetadata": true
+}
+azureuser@devops-agent:~$
+
+
+azureuser@devops-agent:~$ kubectl get secret azure-cloud-provider \
+  -n kube-system \
+  -o jsonpath='{.data}'
+{"azure.json":"ewogICJjbG91ZCI6ICJBenVyZVB1YmxpY0Nsb3VkIiwKICAidGVuYW50SWQiOiAiN2FkN2MzMmYtYzJjNy00OTUzLWFmYTQtYzQ4NGJlMzNlY2FmIiwKICAic3Vic2NyaXB0aW9uSWQiOiAiZjI4NTc3YWEtZWNhZC00YjhkLWE5YjctZWUyODllM2E3NDljIiwKICAicmVzb3VyY2VHcm91cCI6ICJBenVyZV9LOF9SRyIsCiAgImxvY2F0aW9uIjogImNlbnRyYWxpbmRpYSIsCiAgInZtVHlwZSI6ICJzdGFuZGFyZCIsCiAgInVzZU1hbmFnZWRJZGVudGl0eUV4dGVuc2lvbiI6IHRydWUsCiAgInVzZXJBc3NpZ25lZElkZW50aXR5SUQiOiAiZmUzZmEwMzMtODQ2MS00NTc2LTg0NjctZDRhNDkzNjVlODI3IiwKICAidXNlSW5zdGFuY2VNZXRhZGF0YSI6Iazureuser@devops-agent:~$ kubectl get secret azure-cloud-provider \ud-provider \
+  -n kube-system \
+  -o jsonpath='{.data}'
+{"azure.json":"ewogICJjbG91ZCI6ICJBenVyZVB1YmxpY0Nsb3VkIiwKICAidGVuYW50SWQiOiAiN2FkN2MzMmYtYzJjNy00OTUzLWFmYTQtYzQ4NGJlMzNlY2FmIiwKICAic3Vic2NyaXB0aW9uSWQiOiAiZjI4NTc3YWEtZWNhZC00YjhkLWE5YjctZWUyODllM2E3NDljIiwKICAicmVzb3VyY2VHcm91cCI6ICJBenVyZV9LOF9SRyIsCiAgImxvY2F0aW9uIjogImNlbnRyYWxpbmRpYSIsCiAgInZtVHlwZSI6ICJzdGFuZGFyZCIsCiAgInVzZU1hbmFnZWRJZGVudGl0eUV4dGVuc2lvbiI6IHRydWUsCiAgInVzZXJBc3NpZ25lZElkZW50aXR5SUQiOiAiZmUzZmEwMzMtODQ2MS00NTc2LTg0NjctZDRhNDkzNjVlODI3IiwKICAidXNlSW5zdGFuY2VNZXRhZGF0YSI6IHRydWUKfQo="}azureuser@devops-agent:~$
+
+
+Exactly — your latest output proves that the Secret does contain azure.json, so we should not recreate it blindly.
+
+But the CSI driver says:
+
+InitializeCloudFromSecret: ... no data in secret
+
+That means we need to determine what key the v1.34.5 driver expects inside that Secret and whether the Helm chart is mounting/reading it as expected.
+
+The official Azure Disk CSI documentation confirms that the driver can obtain its cloud-provider configuration through a Kubernetes Secret, so our overall approach is correct.
+
+One thing I want to check first:
+azureuser@devops-agent:~$ kubectl get secret azure-cloud-provider \
+  -n kube-system \
+  -o yaml
+apiVersion: v1
+data:
+  azure.json: ewogICJjbG91ZCI6ICJBenVyZVB1YmxpY0Nsb3VkIiwKICAidGVuYW50SWQiOiAiN2FkN2MzMmYtYzJjNy00OTUzLWFmYTQtYzQ4NGJlMzNlY2FmIiwKICAic3Vic2NyaXB0aW9uSWQiOiAiZjI4NTc3YWEtZWNhZC00YjhkLWE5YjctZWUyODllM2E3NDljIiwKICAicmVzb3VyY2VHcm91cCI6ICJBenVyZV9LOF9SRyIsCiAgImxvY2F0aW9uIjogImNlbnRyYWxpbmRpYSIsCiAgInZtVHlwZSI6ICJzdGFuZGFyZCIsCiAgInVzZU1hbmFnZWRJZGVudGl0eUV4dGVuc2lvbiI6IHRydWUsCiAgInVzZXJBc3NpZ25lZElkZW50aXR5SUQiOiAiZmUzZmEwMzMtODQ2MS00NTc2LTg0NjctZDRhNDkzNjVlODI3IiwKICAidXNlSW5zdGFuY2VNZXRhZGF0YSI6IHRydWUKfQo=
+kind: Secret
+metadata:
+  creationTimestamp: "2026-10-02T11:33:59Z"
+  name: azure-cloud-provider
+  namespace: kube-system
+  resourceVersion: "52971"
+  uid: 5022a9a4-e993-4683-a56a-b437e5c4fc3e
+type: Opaque
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$ kubectl get secret azure-cloud-provider \
+  -n kube-system \
+  -o jsonpath='{.type}{"\n"}{.data.azure\.json}{"\n"}'
+Opaque
+ewogICJjbG91ZCI6ICJBenVyZVB1YmxpY0Nsb3VkIiwKICAidGVuYW50SWQiOiAiN2FkN2MzMmYtYzJjNy00OTUzLWFmYTQtYzQ4NGJlMzNlY2FmIiwKICAic3Vic2NyaXB0aW9uSWQiOiAiZjI4NTc3YWEtZWNhZC00YjhkLWE5YjctZWUyODllM2E3NDljIiwKICAicmVzb3VyY2VHcm91cCI6ICJBenVyZV9LOF9SRyIsCiAgImxvY2F0aW9uIjogImNlbnRyYWxpbmRpYSIsCiAgInZtVHlwZSI6ICJzdGFuZGFyZCIsCiAgInVzZU1hbmFnZWRJZGVudGl0eUV4dGVuc2lvbiI6IHRydWUsCiAgInVzZXJBc3NpZ25lZElkZW50aXR5SUQiOiAiZmUzZmEwMzMtODQ2MS00NTc2LTg0NjctZDRhNDkzNjVlODI3IiwKICAidXNlSW5zdGFuY2VNZXRhZGF0YSI6IHRydWUKfQo=
+azureuser@devops-agent:~$ kubectl get secret azure-cloud-provider \
+  -n kube-system \
+  -o jsonpath='{.metadata.name}{"\n"}{.data}' | cut -c1-100
+azure-cloud-provider
+{"azure.json":"ewogICJjbG91ZCI6ICJBenVyZVB1YmxpY0Nsb3VkIiwKICAidGVuYW50SWQiOiAiN2FkN2MzMmYtYzJjNy00O
+
+
+Yes. This confirms the Kubernetes Secret is correctly populated:
+
+Type: Opaque
+Key:  azure.json
+Value: base64-encoded Azure configuration
+
+So the problem is not that the DevOps Agent lacks azure.json, and it is not simply that the Secret is empty.
+
+However, notice the contradiction:
+
+That points to a Secret consumption/mount/configuration issue inside the CSI controller, not the Azure Managed Identity itself.
+
+azureuser@devops-agent:~$ kubectl get pod \
+  csi-azuredisk-controller-544985c75f-z8qsv \
+  -n kube-system \
+  -o jsonpath='{.spec.volumes[*].name}{"\n"}'
+socket-dir azure-cred kube-api-access-p8d86
+azureuser@devops-agent:~$ kubectl get pod \
+  csi-azuredisk-controller-544985c75f-z8qsv \
+  -n kube-system \
+  -o jsonpath='{range .spec.volumes[*]}{.name}{" => "}{.secret.secretName}{"\n"}{end}'
+socket-dir =>
+azure-cred =>
+kube-api-access-p8d86 =>
+azureuser@devops-agent:~$
+
+
+Yes — this is the important finding.
+
+Your controller Pod has a volume named:
+    azure-cred
+
+but it is not a Secret volume:
+    azure-cred =>
+
+So the azure-cloud-provider Secret exists in Kubernetes, but the controller Pod is not mounting that Secret.
+
+That explains the behavior we saw:
+Secret exists
+     ↓
+CSI controller doesn't receive it
+     ↓
+azuredisk tries /etc/kubernetes/azure.json
+     ↓
+file doesn't exist
+     ↓
+azuredisk crashes
+
+The csi-provisioner, csi-attacher, etc. then fail because the main CSI socket disappears. Your /csi/csi.sock errors are therefore secondary.
+
+Let's inspect azure-cred
+
+Run this exact command:
+azureuser@devops-agent:~$ kubectl get pod \
+  csi-azuredisk-controller-544985c75f-z8qsv \
+  -n kube-system \
+  -o jsonpath='{.spec.volumes[?(@.name=="azure-cred")]}'
+{"hostPath":{"path":"/etc/kubernetes/","type":"DirectoryOrCreate"},"name":"azure-cred"}azureuser@devops-agent:~$
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$ kubectl get pod \
+  csi-azuredisk-controller-544985c75f-z8qsv \
+  -n kube-system \
+  -o jsonpath='{.spec.containers[?(@.name=="azuredisk")].volumeMounts[*]}'
+{"mountPath":"/csi","name":"socket-dir"} {"mountPath":"/etc/kubernetes/","name":"azure-cred"} {"mountPath":"/var/run/secrets/kubernetes.io/serviceaccount","name":"kube-api-access-p8d86","readOnly":true}azureuser@devops-agent:~$
+azureuser@devops-agent:~$
+azureuser@devops-agent:~$
+
+
+And most importantly, let's see the actual Helm values currently deployed:
+
+azureuser@devops-agent:~$ helm get values azuredisk-csi-driver \
+  -n kube-system \
+  -o yaml
+controller:
+  cloudConfigSecretName: azure-cloud-provider
+  cloudConfigSecretNamespace: kube-system
+node:
+  cloudConfigSecretName: azure-cloud-provider
+  cloudConfigSecretNamespace: kube-system
+
+
+
+
+What your output proves
+
+Your Helm values are correct:
+
+controller:
+  cloudConfigSecretName: azure-cloud-provider
+  cloudConfigSecretNamespace: kube-system
+node:
+  cloudConfigSecretName: azure-cloud-provider
+  cloudConfigSecretNamespace: kube-system
+
+  However, the controller Pod is not mounting that Kubernetes Secret.
+
+Instead, the azure-cred volume is:
+{
+  "hostPath": {
+    "path": "/etc/kubernetes/",
+    "type": "DirectoryOrCreate"
+  },
+  "name": "azure-cred"
+}
+
+And the azuredisk container mounts it here:
+
+/etc/kubernetes/
+
+
+So the controller is effectively expecting:
+
+CSI controller container
+        |
+        +-- /etc/kubernetes/
+                |
+                +-- azure.json   <-- expected
+
+
+But your azure.json currently exists only on the k8s-master VM filesystem. A Pod scheduled on k8s-node1 or k8s-node2 sees the /etc/kubernetes/ directory from that node, not the master's filesystem.
+
+That explains this error from your earlier logs:
+
+open /etc/kubernetes/azure.json: no such file or directory
+
+
+The important correction
+
+The Kubernetes Secret does exist, but the Helm chart has not used it as the Pod's /etc/kubernetes/ volume.
+
+So don't recreate the Secret yet.
+
+We should first determine why chart v1.34.5 rendered azure-cred as a hostPath despite cloudConfigSecretName being set.
+
+This is the key finding. The azure-cloud-provider Secret exists, but the azure-cred-file ConfigMap referenced by the rendered CSI manifest does not exist.
+
+azureuser@devops-agent:~$ kubectl get pods -n kube-system -l app=csi-azuredisk-node -o wide
+NAME                       READY   STATUS    RESTARTS      AGE     IP         NODE         NOMINATED NODE   READINESS GATES
+csi-azuredisk-node-4r5t8   3/3     Running   3 (42m ago)   3h53m   10.0.1.5   k8s-node1    <none>           <none>
+csi-azuredisk-node-7g2lf   3/3     Running   3 (42m ago)   3h53m   10.0.1.6   k8s-node2    <none>           <none>
+csi-azuredisk-node-l8vcr   3/3     Running   3 (42m ago)   3h53m   10.0.1.4   k8s-master   <none>           <none>
+azureuser@devops-agent:~$ kubectl get pod csi-azuredisk-node-4r5t8 \
+  -n kube-system \
+  -o jsonpath='{.spec.containers[*].name}{"\n"}'
+liveness-probe node-driver-registrar azuredisk
+azureuser@devops-agent:~$ kubectl get pod csi-azuredisk-node-4r5t8 \
+  -n kube-system \
+  -o jsonpath='{.spec.containers[*].name}{"\n"}'
+liveness-probe node-driver-registrar azuredisk
+azureuser@devops-agent:~$ kubectl get pod csi-azuredisk-node-4r5t8 \
+  -n kube-system \
+  -o yaml | grep -n -A15 -B10 "azure-cloud-provider"
+111-      name: kube-api-access-78s9x
+112-      readOnly: true
+113-  - args:
+114-    - --v=5
+115-    - --endpoint=$(CSI_ENDPOINT)
+116-    - --nodeid=$(KUBE_NODE_NAME)
+117-    - --enable-perf-optimization=true
+118-    - --drivername=disk.csi.azure.com
+119-    - --volume-attach-limit=-1
+120-    - --reserved-data-disk-slot-num=0
+121:    - --cloud-config-secret-name=azure-cloud-provider
+122-    - --cloud-config-secret-namespace=kube-system
+123-    - --custom-user-agent=
+124-    - --user-agent-suffix=OSS-helm
+125-    - --allow-empty-cloud-config=true
+126-    - --support-zone=true
+127-    - --get-node-info-from-labels=false
+128-    - --get-nodeid-from-imds=false
+129-    - --enable-otel-tracing=false
+130-    - --metrics-address=0.0.0.0:29605
+131-    - --remove-not-ready-taint=true
+132-    env:
+133-    - name: AZURE_CREDENTIAL_FILE
+134-      valueFrom:
+135-        configMapKeyRef:
+136-          key: path
+
+
+
+Now we have the actual root cause.
+
+Your Azure Disk CSI node driver is starting, but it does not have a usable Azure cloud configuration/credentials.
+
+The decisive lines are:
+
+reading cloud config from secret kube-system/azure-cloud-provider
+InitializeCloudFromSecret: failed to get cloud config from secret kube-system/azure-cloud-provider: no data in secret
+So what is wrong?
+
+We have two separate issues.
+
+1. The Secret exists, but the CSI driver says it has no usable data
+
+You confirmed:
+
+Secret: azure-cloud-provider
+Data:
+  azure.json: 374 bytes
+
+But the CSI driver reports:
+
+failed to get cloud config from secret ...: no data in secret
+
+This is very important.
+
+It suggests that the Secret's azure.json key/content isn't in the format the CSI driver expects, or the CSI driver's expected key/configuration doesn't match what's actually stored.
+
+2. The fallback file doesn't exist
+
+The driver falls back to:
+
+/etc/kubernetes/azure.json
+
+but your node doesn't have that file.
+
+Therefore:
+
+Azure credentials → unavailable
+
+And because you have:
+
+--allow-empty-cloud-config=true
+
+the driver doesn't crash. It continues running with no Azure cloud configuration.
+
+That's why you see:
+
+3/3 Running
+
+while still getting:
+
+no credentials provided for Azure cloud provider
+
+This is a classic case where Pod health ≠ functional Azure integration.
+
+
+
+Excellent. This confirms that the Secret itself is valid JSON and contains the expected Azure cloud configuration fields.
+
+So we can narrow the problem further.
+
+What we now know
+
+Your Secret contains:
+
+azure.json
+├── cloud
+├── tenantId
+├── subscriptionId
+├── resourceGroup
+├── location
+├── vmType
+├── useManagedIdentityExtension
+├── userAssignedIdentityID
+└── useInstanceMetadata
+
+The JSON is valid.
+
+But the CSI driver says:
+
+InitializeCloudFromSecret: failed to get cloud config from secret ...: no data in secret
+
+That means the issue is probably not malformed JSON.
+
+The next thing I want to establish is what version of the Helm chart and its expected Secret configuration are being used.
+
+What we fixed
+
+The sequence was:
+
+azure-cloud-provider Secret
+        ↓
+cloud-config key was missing
+        ↓
+CSI could not initialize Azure
+        ↓
+Added cloud-config
+        ↓
+Azure ARM initialization successful
+        ↓
+CSI discovered:
+  VM = STANDARD_B2S
+  Zone = centralindia-1
+        ↓
+Existing empty topology label caused collision
+        ↓
+Removed stale empty label
+        ↓
+node-driver-registrar successfully registered
+        ↓
+CSINode updated
+        ↓
+CSI node pod = 3/3 Running
+Now verify the CSINode
+
+et me summarize the actual problem, why it happened, and exactly how we fixed it in simple terms.
+
+1. What were we trying to achieve?
+
+We installed the Azure Disk CSI Driver so that Kubernetes can do this:
+
+Kubernetes PVC
+      ↓
+Azure Disk CSI Driver
+      ↓
+Azure Managed Disk
+      ↓
+PV
+      ↓
+Pod mounts the disk
+
+For that to work, every Kubernetes node needs a healthy Azure Disk CSI node plugin.
+
+Your cluster has:
+
+k8s-master   10.0.1.4
+k8s-node1    10.0.1.5
+k8s-node2    10.0.1.6
+
+Eventually we wanted:
+
+Master   → Azure Disk CSI ✅
+Node1    → Azure Disk CSI ✅
+Node2    → Azure Disk CSI ✅
+
+And we now have exactly that.
+
+2. What was the first problem?
+
+Initially the CSI driver couldn't get Azure cloud configuration.
+
+The important log was:
+
+InitializeCloudFromSecret:
+failed to get cloud config from secret
+no data in secret
+
+Then it tried the fallback:
+
+/etc/kubernetes/azure.json
+
+But that file didn't exist:
+
+open /etc/kubernetes/azure.json:
+no such file or directory
+
+So the CSI driver said:
+
+no cloud config provided
+driver will run without cloud config
+
+And consequently:
+
+no credentials provided for Azure cloud provider
+In simple words
+
+The CSI driver was basically saying:
+
+"I need Azure information so I can talk to Azure, but I don't have the configuration."
+
+3. Why did this happen?
+
+Your Helm deployment was configured to use:
+
+Secret: azure-cloud-provider
+Namespace: kube-system
+
+But the Secret originally contained:
+
+azure.json
+
+The CSI driver version/chart we were using expected the cloud configuration through the appropriate Secret data entry.
+
+We added:
+
+cloud-config
+
+while keeping the existing azure.json.
+
+So the Secret became:
+
+azure-cloud-provider
+├── azure.json
+└── cloud-config
+
+After that, the logs changed dramatically.
+
+Instead of:
+
+no credentials provided
+
+we saw:
+
+Setting up ARM client factory for network resources
+Setting up ARM client factory for compute resources
+
+and then:
+
+NodeGetInfo
+failureDomain: centralindia-1
+VM Size: STANDARD_B2S
+MaxDataDiskCount: 4
+This proved:
+
+Azure authentication was fixed.
+
+The CSI driver could now communicate with Azure.
+
+4. Then we encountered the second problem
+
+After Azure authentication was fixed, the CSI driver discovered the Azure zone:
+
+centralindia-1
+
+But Kubernetes already had an empty label on the nodes:
+
+topology.disk.csi.azure.com/zone=
+
+So the CSI driver wanted to say:
+
+topology.disk.csi.azure.com/zone=centralindia-1
+
+but Kubernetes effectively said:
+
+"That label already exists, and its value is empty."
+
+Therefore the node-driver-registrar reported:
+
+detected topology value collision
+
+Specifically:
+
+driver reported:
+centralindia-1
+
+existing label:
+""
+5. Why did this cause the CSI pod to fail?
+
+The CSI node driver doesn't just run the container.
+
+It also has to register itself with Kubernetes.
+
+The process is approximately:
+
+Azure Disk CSI container
+        ↓
+node-driver-registrar
+        ↓
+Kubernetes Node
+        ↓
+CSINode object
+
+The registrar tried to register:
+
+disk.csi.azure.com
+
+with topology:
+
+centralindia-1
+
+But the existing empty label caused a collision.
+
+So the registrar failed:
+
+RegisterPlugin error
+
+and restarted.
+
+That's why we saw:
+
+2/3 CrashLoopBackOff
+
+The two healthy containers were:
+
+azuredisk
+liveness-probe
+
+while:
+
+node-driver-registrar
+
+was repeatedly crashing.
+
+6. Why did node1 and node2 eventually work?
+
+We found this stale label on the nodes:
+
+topology.disk.csi.azure.com/zone=
+
+We removed it with:
+
+kubectl label node k8s-node1 topology.disk.csi.azure.com/zone-
+
+and:
+
+kubectl label node k8s-node2 topology.disk.csi.azure.com/zone-
+
+Then the CSI registrar was able to register successfully.
+
+The result became:
+
+topology.disk.csi.azure.com/zone=centralindia-1
+
+And the CSINode objects showed:
+
+disk.csi.azure.com
+
+with:
+
+allocatable count: 4
+7. The same problem existed on the master
+
+Initially:
+
+k8s-master
+topology.disk.csi.azure.com/zone=
+
+And the registrar log confirmed:
+
+driver reported "centralindia-1"
+but existing label is ""
+
+We removed it:
+
+kubectl label node k8s-master topology.disk.csi.azure.com/zone-
+
+Then deleted only the failed CSI pod:
+
+kubectl delete pod csi-azuredisk-node-m2pmx -n kube-system
+
+Because the DaemonSet automatically recreated it.
+
+The new pod came up:
+
+csi-azuredisk-node-kb6tg   3/3 Running
+8. Final result
+
+Your current cluster shows:
+
+Node topology
+k8s-master   → centralindia-1
+k8s-node1    → centralindia-1
+k8s-node2    → centralindia-1
+CSI node plugins
+k8s-master   → 3/3 Running
+k8s-node1    → 3/3 Running
+k8s-node2    → 3/3 Running
+CSINode
+k8s-master   → 2 drivers
+k8s-node1    → 2 drivers
+k8s-node2    → 2 drivers
+
+One of those drivers is:
+
+disk.csi.azure.com
+CSI controllers
+controller → 6/6 Running
+controller → 6/6 Running
+
+So the Azure Disk CSI infrastructure is now healthy. ✅
+
+9. The whole troubleshooting story in one picture
+                 INITIAL PROBLEM
+                       │
+                       ▼
+       CSI could not read Azure cloud config
+                       │
+                       ▼
+       Secret had wrong/missing expected data
+                       │
+                       ▼
+              Added cloud-config
+                       │
+                       ▼
+          Azure ARM authentication worked
+                       │
+                       ▼
+       CSI discovered Azure zone:
+              centralindia-1
+                       │
+                       ▼
+       BUT Kubernetes Node already had
+       topology.disk.csi.azure.com/zone=""
+                       │
+                       ▼
+            Topology collision
+                       │
+                       ▼
+          node-driver-registrar failed
+                       │
+                       ▼
+             CSI pod = 2/3
+             CrashLoopBackOff
+                       │
+                       ▼
+       Removed stale empty topology label
+                       │
+                       ▼
+       Restarted failed CSI pod
+                       │
+                       ▼
+             CSI registration
+                 succeeded
+                       │
+                       ▼
+              FINAL STATE
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+       master        node1        node2
+       3/3           3/3           3/3
+          │            │            │
+          └────────────┼────────────┘
+                       ▼
+             Azure Disk CSI READY
+10. The two actual root causes
+Problem	Root cause	Fix
+CSI couldn't authenticate/talk to Azure	Cloud configuration wasn't being read from the expected Secret data entry	Added cloud-config to azure-cloud-provider Secret
+CSI registrar was CrashLooping	Existing empty topology.disk.csi.azure.com/zone label conflicted with CSI's discovered centralindia-1	Removed stale topology label and recreated failed CSI pods
+
+

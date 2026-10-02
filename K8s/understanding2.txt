@@ -1,0 +1,49 @@
+check for existing storage classes:
+azureuser@devops-agent:~$ kubectl get storageclass
+NAME            PROVISIONER                    RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+local-storage   kubernetes.io/no-provisioner   Delete          WaitForFirstConsumer   false                  2d4h
+standard        disk.csi.azure.com             Retain          WaitForFirstConsumer   false                  2d4h
+azureuser@devops-agent:~$
+
+yaml of stroage classe:
+azureuser@devops-agent:~$ kubectl get storageclass -o yaml
+apiVersion: v1
+items:
+- apiVersion: storage.k8s.io/v1
+  kind: StorageClass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"storage.k8s.io/v1","kind":"StorageClass","metadata":{"annotations":{},"name":"local-storage"},"provisioner":"kubernetes.io/no-provisioner","volumeBindingMode":"WaitForFirstConsumer"}
+    creationTimestamp: "2026-09-30T12:24:21Z"
+    name: local-storage
+    resourceVersion: "18153"
+    uid: 6030dd68-c2db-414a-bd3c-3a8c87f1adb0
+  provisioner: kubernetes.io/no-provisioner
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+- apiVersion: storage.k8s.io/v1
+  kind: StorageClass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"storage.k8s.io/v1","kind":"StorageClass","metadata":{"annotations":{},"name":"standard"},"parameters":{"skuName":"StandardSSD_LRS"},"provisioner":"disk.csi.azure.com","reclaimPolicy":"Retain","volumeBindingMode":"WaitForFirstConsumer"}
+    creationTimestamp: "2026-09-30T12:24:13Z"
+    name: standard
+    resourceVersion: "18136"
+    uid: 7a5c3627-e319-41e6-9f3d-a8cd336bda73
+  parameters:
+    skuName: StandardSSD_LRS
+  provisioner: disk.csi.azure.com
+  reclaimPolicy: Retain
+  volumeBindingMode: WaitForFirstConsumer
+kind: List
+metadata:
+  resourceVersion: ""
+
+
+azureuser@devops-agent:~$ kubectl get csidriver
+NAME                 ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENREQUESTS   REQUIRESREPUBLISH   MODES        AGE
+csi.tigera.io        true             true             false             <unset>         false               Ephemeral    2d6h
+disk.csi.azure.com   true             false            false             <unset>         false               Persistent   4h42m
+azureuser@devops-agent:~$
