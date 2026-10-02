@@ -1,0 +1,77 @@
+Redis is a good next component, and your observation is correct: in the Robot Shop Helm chart, Redis is deployed as a StatefulSet, not a Deployment. The chart explicitly has redis.storageClassName: standard, which is used for the Redis StatefulSet's storage
+
+Redis image
+
+From the Robot Shop project, Redis uses the standard Redis image:
+
+image: redis:6.2-alpine
+
+The project's Docker Compose definition confirms redis:6.2-alpine
+
+
+Why StatefulSet for Redis?
+
+This is important for your learning.
+
+MongoDB
+   ↓
+Deployment
+   ↓
+PVC
+
+
+whereas Redis in Robot Shop:
+
+Redis
+   ↓
+StatefulSet
+   ↓
+PVC
+
+
+
+A StatefulSet gives Redis a stable Pod identity and stable storage association.
+
+For example:
+StatefulSet: redis
+
+Pod:
+redis-0
+
+PVC:
+redis-data-redis-0
+
+Azure Disk:
+Persistent storage
+
+
+If redis-0 is recreated, Kubernetes maintains the StatefulSet identity and its associated PVC.
+
+Your existing StorageClass fits perfectly
+
+The Robot Shop Helm values contain:
+
+redis:
+  storageClassName: standard
+
+So we can use your existing:
+
+standard
+   ↓
+disk.csi.azure.com
+   ↓
+Azure Managed Disk
+
+The official chart specifically documents redis.storageClassName as the StorageClass used by Redis's StatefulSet
+
+Redis
+StatefulSet
+   ↓
+volumeClaimTemplates
+   ↓
+PVC
+   ↓
+PV
+   ↓
+Azure Disk
+

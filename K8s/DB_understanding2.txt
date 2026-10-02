@@ -1,0 +1,473 @@
+check for existing storage classes:
+azureuser@devops-agent:~$ kubectl get storageclass
+NAME            PROVISIONER                    RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+local-storage   kubernetes.io/no-provisioner   Delete          WaitForFirstConsumer   false                  2d4h
+standard        disk.csi.azure.com             Retain          WaitForFirstConsumer   false                  2d4h
+azureuser@devops-agent:~$
+
+yaml of stroage classe:
+azureuser@devops-agent:~$ kubectl get storageclass -o yaml
+apiVersion: v1
+items:
+- apiVersion: storage.k8s.io/v1
+  kind: StorageClass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"storage.k8s.io/v1","kind":"StorageClass","metadata":{"annotations":{},"name":"local-storage"},"provisioner":"kubernetes.io/no-provisioner","volumeBindingMode":"WaitForFirstConsumer"}
+    creationTimestamp: "2026-09-30T12:24:21Z"
+    name: local-storage
+    resourceVersion: "18153"
+    uid: 6030dd68-c2db-414a-bd3c-3a8c87f1adb0
+  provisioner: kubernetes.io/no-provisioner
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+- apiVersion: storage.k8s.io/v1
+  kind: StorageClass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"storage.k8s.io/v1","kind":"StorageClass","metadata":{"annotations":{},"name":"standard"},"parameters":{"skuName":"StandardSSD_LRS"},"provisioner":"disk.csi.azure.com","reclaimPolicy":"Retain","volumeBindingMode":"WaitForFirstConsumer"}
+    creationTimestamp: "2026-09-30T12:24:13Z"
+    name: standard
+    resourceVersion: "18136"
+    uid: 7a5c3627-e319-41e6-9f3d-a8cd336bda73
+  parameters:
+    skuName: StandardSSD_LRS
+  provisioner: disk.csi.azure.com
+  reclaimPolicy: Retain
+  volumeBindingMode: WaitForFirstConsumer
+kind: List
+metadata:
+  resourceVersion: ""
+
+
+azureuser@devops-agent:~$ kubectl get csidriver
+NAME                 ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENREQUESTS   REQUIRESREPUBLISH   MODES        AGE
+csi.tigera.io        true             true             false             <unset>         false               Ephemeral    2d6h
+disk.csi.azure.com   true             false            false             <unset>         false               Persistent   4h42m
+azureuser@devops-agent:~$
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pvc -n robot-shop
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+mongodb-pvc   Bound    pvc-fb0d8e4f-1f92-4c13-86ca-bdd0a270316c   1Gi        RWO            standard       <unset>                 3m57s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f mongodbservice.yaml
+service/mongodb created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get svc
+NAME      TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)     AGE
+mongodb   ClusterIP   10.104.73.58   <none>        27017/TCP   4s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpoints mongodb
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME      ENDPOINTS               AGE
+mongodb   192.168.169.161:27017   25s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-xkqkk   1/1     Running   0          4m16s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+complte mongoDB:
+                  robot-shop namespace
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+        Service: mongodb       Deployment: mongodb
+        ClusterIP              replicas: 1
+        10.104.73.58                 │
+        port 27017                    ▼
+              │                  MongoDB Pod
+              │                192.168.169.161
+              │                      │
+              │                   /data/db
+              │                      │
+              │                      ▼
+              │                 mongodb-pvc
+              │                      │
+              │                      ▼
+              │                PV (1Gi, Bound)
+              │                      │
+              │                      ▼
+              │             Azure Managed Disk
+              │
+              └───────► MongoDB :27017
+
+
+Step 1 — Check MongoDB Service DNS:
+mongodb:27017
+
+From another Pod in the robot-shop namespace, Kubernetes DNS should resolve it as:
+
+mongodb.robot-shop.svc.cluster.local
+
+
+Step 2 — Run a temporary MongoDB client Pod:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run mongo-client \
+  --image=mongo:8 \
+  --rm -it \
+  --restart=Never \
+  -- mongosh "mongodb://mongodb:27017"
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+Using MongoDB:          5.0.2
+Using Mongosh:          2.12.0
+
+For mongosh info see: https://www.mongodb.com/docs/mongodb-shell/
+
+
+To help improve our products, pseudo-anonymous usage data is collected from interactive and agentic sessions only, and sent to MongoDB periodically (https://www.mongodb.com/legal/privacy-policy).
+You can opt-out by running the disableTelemetry() command.
+
+------
+   The server generated these startup warnings when booting
+   2026-10-02T16:50:17.906+00:00: Using the XFS filesystem is strongly recommended with the WiredTiger storage engine. See http://dochub.mongodb.org/core/prodnotes-filesystem
+   2026-10-02T16:50:22.902+00:00: Access control is not enabled for the database. Read and write access to data and configuration is unrestricted
+   2026-10-02T16:50:22.902+00:00: Soft rlimits for open file descriptors too low
+------
+
+test>
+
+
+
+What this test proves
+mongo-client Pod
+       │
+       │ mongodb:27017
+       ▼
+Kubernetes Service
+       │
+       ▼
+MongoDB Pod
+       │
+       ▼
+MongoDB process :27017
+
+This tests Kubernetes Service discovery + networking + MongoDB connectivity.
+
+test> use robotshop
+switched to db robotshop
+robotshop> db.products.insertOne({
+|   name: "Test Robot",
+|   price: 100
+| })
+{
+  acknowledged: true,
+  insertedId: ObjectId('6abfe29e3f3eb87d8f09d185')
+}
+robotshop>
+robotshop> db.products.find()
+[
+  {
+    _id: ObjectId('6abfe29e3f3eb87d8f09d185'),
+    name: 'Test Robot',
+    price: 100
+  }
+]
+
+
+
+now try perisistence:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-xkqkk   1/1     Running   0          9m47s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl delete pod mongodb-6465489f5f-xkqkk
+pod "mongodb-6465489f5f-xkqkk" deleted from robot-shop namespace
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -w
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-8t6fg   1/1     Running   0          20s
+^Cazureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+
+persistence testing:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run mongo-client \ \
+  --image=mongo:8 \
+  --rm -it \
+  --restart=Never \
+  -- mongosh "mongodb://mongodb:27017"
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+test> use robotshop
+switched to db robotshop
+robotshop> db.products.find()
+[
+  {
+    _id: ObjectId('6abfe29e3f3eb87d8f09d185'),
+    name: 'Test Robot',
+    price: 100
+  }
+]
+robotshop>
+
+
+
+
+Excellent! 🎉 Persistence test passed.
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pvc
+kubectl get pv
+kubectl get pods -o wide
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+mongodb-pvc   Bound    pvc-fb0d8e4f-1f92-4c13-86ca-bdd0a270316c   1Gi        RWO            standard       <unset>                 24m
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                         STORAGECLASS    VOLUMEATTRIBUTESCLASS   REASON   AGE
+postgres-pv                                5Gi        RWO            Retain           Bound    three-tier-app/postgres-pvc   local-storage   <unset>                          2d4h
+pvc-fb0d8e4f-1f92-4c13-86ca-bdd0a270316c   1Gi        RWO            Retain           Bound    robot-shop/mongodb-pvc        standard        <unset>                          21m
+NAME                       READY   STATUS    RESTARTS   AGE    IP                NODE        NOMINATED NODE   READINESS GATES
+mongodb-6465489f5f-8t6fg   1/1     Running   0          111s   192.168.169.163   k8s-node2   <none>           <none>
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+What happened?
+
+Your MongoDB Pod was recreated and Kubernetes scheduled the new Pod on k8s-node2:
+
+MongoDB Pod
+     │
+     │ scheduled on
+     ▼
+k8s-node2
+     │
+     │ needs mongodb-pvc
+     ▼
+mongodb-pvc
+     │
+     ▼
+PV
+     │
+     ▼
+Azure Managed Disk
+
+The important point is:
+
+The data does not belong to the Pod or to node2. The data belongs to the Azure Managed Disk.
+
+Why could node2 mount it?
+
+Your PVC uses:
+
+storageClassName: standard
+
+and that StorageClass uses:
+
+provisioner: disk.csi.azure.com
+
+Therefore Kubernetes dynamically created an Azure Managed Disk.
+
+Your PV contains:
+
+csi:
+  driver: disk.csi.azure.com
+  volumeHandle: /subscriptions/.../Microsoft.Compute/disks/pvc-fb0d8e4f...
+
+That volumeHandle is effectively the identity of the actual Azure Managed Disk.
+
+So when MongoDB was running on another node, the disk was attached there.
+
+When the Pod was recreated and scheduled on node2, Kubernetes/CSI handled the storage attachment for node2.
+
+Conceptually:
+
+Before Pod recreation
+
+MongoDB Pod
+    │
+    ▼
+Node ?
+    │
+    ▼
+Azure Managed Disk
+    │
+    ▼
+MongoDB data
+
+After recreation:
+
+                 Azure Managed Disk
+                 ┌─────────────────┐
+                 │ Test Robot      │
+                 │ price: 100      │
+                 └────────┬────────┘
+                          │
+                     CSI Driver
+                          │
+                          ▼
+                      k8s-node2
+                          │
+                          ▼
+                    MongoDB Pod
+                          │
+                          ▼
+                       /data/db
+The key Kubernetes process
+
+When the new MongoDB Pod was scheduled:
+
+Scheduler selected k8s-node2.
+Kubernetes saw that the Pod requires mongodb-pvc.
+PVC is bound to the existing PV.
+PV identifies the Azure Disk through volumeHandle.
+Azure Disk CSI Driver handles the disk attachment/mount operation.
+The disk becomes available to k8s-node2.
+
+CSI mounts the filesystem into the MongoDB container at:
+
+/data/db
+MongoDB sees the existing files.
+
+Therefore:
+
+Test Robot
+
+was still present.
+
+Why the data wasn't lost
+
+If MongoDB's data had been stored only inside the Pod:
+
+Pod → local filesystem
+
+deleting the Pod would have lost the data.
+
+But your architecture is:
+
+Pod
+ ↓
+PVC
+ ↓
+PV
+ ↓
+Azure Managed Disk
+
+So:
+
+Pod can disappear → Pod can move to another node → Azure Disk remains → data remains.
+
+One important limitation
+
+Your Azure Disk is:
+
+ReadWriteOnce (RWO)
+
+That means the disk is generally intended to be mounted read-write by one node at a time.
+
+It does not mean:
+
+"This disk belongs permanently to node2."
+
+It means:
+
+"Kubernetes can attach this persistent disk to the node where the workload is running, subject to Azure Disk/CSI attachment rules."
+
+That is exactly why your Pod could be recreated on node2 and still see the same MongoDB data.
+
+This is the fundamental difference between Pod storage and persistent storage in Kubernetes.
+
+In your case there are two separate mechanisms.
+
+1. Label/topology tells Kubernetes about the node
+
+Your nodes have:
+
+topology.disk.csi.azure.com/zone=centralindia-1
+
+Your dynamically created PV also has:
+
+nodeAffinity:
+  required:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: topology.disk.csi.azure.com/zone
+        operator: In
+        values:
+        - centralindia-1
+
+This means:
+
+"This PV can be used on a node having this topology."
+
+So the label is mainly used for scheduling/topology decisions.
+
+2. CSI Driver actually performs the attach/mount
+
+Once Kubernetes schedules your MongoDB Pod on k8s-node2:
+
+Pod
+ │
+ ▼
+k8s-node2
+ │
+ │ PVC required
+ ▼
+mongodb-pvc
+ │
+ ▼
+PV
+ │
+ │ volumeHandle
+ ▼
+Azure Managed Disk
+
+The Azure Disk CSI Driver then performs the actual storage operations.
+
+There are two important CSI components:
+
+Azure Disk CSI Controller
+        │
+        │ Attach disk to node
+        ▼
+   Azure Managed Disk
+        │
+        ▼
+     k8s-node2
+        │
+        │ Mount disk
+        ▼
+   /var/lib/kubelet/...
+        │
+        ▼
+   MongoDB container
+        │
+        ▼
+      /data/db
+
+So:
+
+Node label/topology → helps determine whether the node is suitable.
+PV nodeAffinity → restricts where the PV can be used.
+CSI Controller → coordinates Azure disk attachment.
+CSI Node plugin on node2 → performs the node-side mount.
+Kubernetes volumeMount → exposes that mounted volume inside the container as /data/db.
+In your specific case
+
+Your PV has:
+
+volumeHandle: /subscriptions/.../Microsoft.Compute/disks/pvc-fb0d8e4f...
+
+So Kubernetes/CSI knows which Azure disk it needs.
+
+And node2 has:
+
+topology.disk.csi.azure.com/zone=centralindia-1
+
+while the PV requires:
+
+centralindia-1
+
+Therefore node2 satisfies the PV's topology requirement.
+
+But the actual physical attachment is not done by the label.
+
+
