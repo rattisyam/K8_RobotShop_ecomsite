@@ -1,0 +1,155 @@
+What is Shipping?
+
+Shipping is a Java/Spring Boot-style service in Robot Shop, unlike the Node.js services you've deployed so far. The official container image exposes port 8080 and has these important defaults:
+
+So Shipping has two service dependencies: cart and mysql
+
+                         Shipping
+                            │
+                    ┌───────┴────────┐
+                    │                │
+                    ▼                ▼
+              Cart Service      MySQL Service
+                 :8080              :3306
+                    │                │
+                    ▼                ▼
+                Cart Pod         MySQL Pod
+                                    │
+                                    ▼
+                              cities database
+
+                              2. What Kubernetes objects do we need?
+
+For Shipping, normally:
+
+Object	Name	Purpose
+Deployment	shipping	Runs the Shipping application
+Service	shipping	Makes Shipping available to other microservices
+
+No PVC is needed for Shipping itself, because Shipping is stateless. MySQL already owns the database data.
+
+
+Why does Shipping need Cart?
+
+The Shipping service needs information associated with the current order/cart when calculating or processing shipping.
+
+The container itself explicitly has:
+
+CART_ENDPOINT=cart:8080
+
+So Kubernetes DNS lets it reach:
+
+cart:8080
+
+without hardcoding the Cart ClusterIP.
+
+
+Why does Shipping need MySQL?
+
+This is the important database relationship:
+
+Shipping
+    │
+    │ mysql:3306
+    ▼
+MySQL
+    │
+    └── cities database
+microservice-to-microservice communication plus database communication:
+
+                 Kubernetes
+                     │
+             ┌───────┴────────┐
+             ▼                ▼
+        Cart Service      MySQL Service
+             │                │
+             ▼                ▼
+          Cart Pod         MySQL Pod
+             ▲                ▲
+             │                │
+             └──── Shipping Pod ────┘
+                       ▲
+                       │
+                Shipping Service
+
+
+Shipping architecture:
+After deployment, your architecture becomes:
+
+                    ┌─────────────────┐
+                    │  Shipping       │
+                    │  Deployment     │
+                    └────────┬────────┘
+                             │
+                             v
+                    ┌─────────────────┐
+                    │ Shipping Pod    │
+                    │ Java            │
+                    │ :8080           │
+                    └───────┬─────────┘
+                            │
+                       mysql:3306
+                            │
+                            v
+                    ┌─────────────────┐
+                    │ MySQL Service   │
+                    │ ClusterIP       │
+                    └────────┬────────┘
+                             │
+                             v
+                    ┌─────────────────┐
+                    │ MySQL Pod       │
+                    │ :3306           │
+                    │ cities DB       │
+                    └─────────────────┘
+
+And later:
+
+                 Web
+                  |
+          ┌───────┴────────┐
+          |                |
+          v                v
+       Cart            Shipping
+          |                |
+          v                v
+        Redis            MySQL
+
+The original application configuration also shows Web depending on Shipping, so Shipping participates in the frontend/order flow rather than being an isolated service.
+
+6. Why the readiness probe is particularly useful here
+
+This is the most important new Kubernetes concept in Shipping.
+
+You have:
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+
+Kubernetes will repeatedly ask:
+
+Shipping Pod
+     |
+     | HTTP GET /health
+     |
+     v
+:8080
+
+If Shipping isn't ready:
+
+Pod = Running
+Pod = NOT Ready
+
+Therefore the Service should not send normal application traffic to that Pod until it becomes Ready.
+
+This is different from:
+
+Pod Running
+
+A Java container can be Running while the application is still starting.
+
+That's why readiness probes are very important for Java/Spring Boot-style services.
+
+

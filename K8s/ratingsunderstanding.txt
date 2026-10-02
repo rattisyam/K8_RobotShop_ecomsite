@@ -1,0 +1,72 @@
+Ratings is useful because it gives us another microservice dependency pattern to understand. 
+We should keep the same approach we've used so far:
+
+Ratings is a microservice that handles product ratings.
+
+The application exposes APIs such as:
+
+/api/ratings/api/rate/{sku}/{rating}
+
+and:
+
+/api/ratings/api/fetch/{sku}
+
+The Robot Shop load generator actually calls these APIs to submit and retrieve product ratings.
+
+
+So conceptually:
+
+User
+ |
+ | Rate product
+ v
+Web
+ |
+ v
+Ratings
+ |
+ v
+MySQL
+
+What Kubernetes objects do we need?
+
+For our manual deployment, we need:
+
+Ratings
+ |
+ +-- Deployment
+ |
+ +-- Service
+
+
+Ratings → MySQL
+
+This is the important connection for your Kubernetes learning.
+
+Ratings Pod
+     |
+     | MySQL connection
+     v
+mysql:3306
+     |
+     v
+MySQL Pod
+
+Your existing MySQL Service is already:
+
+mysql
+
+and listens on:
+
+3306
+
+Therefore Ratings doesn't need the MySQL ClusterIP.
+
+It can use Kubernetes DNS:
+
+mysql:3306
+
+
+The official Robot Shop configuration confirms the Ratings → MySQL dependency
+
+

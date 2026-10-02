@@ -119,11 +119,138 @@ robot-shop-k8s/
 
 8.shipping
 9.ratings
+
+Ratings
+
+Ratings is a Node.js service.
+
+Ratings
+   |
+   | MongoDB
+   ▼
+MongoDB
+
+Port: 8080
+
+
 10.RabbitMQ
+
+RabbitMQ is the message broker used for asynchronous communication between services.
+
+RabbitMQ
+   |
+   | Messages
+   ▼
+Dispatch / Order-related services
+
+Port: 5672 — AMQP
+Management UI: 15672
+
+Think of it as:
+
+Service A
+   |
+   | message
+   ▼
+RabbitMQ
+   |
+   | message
+   ▼
+Service B
+
+
+
 11.Payment
+
+Payment is a Node.js service.
+
+Payment
+   |
+   | RabbitMQ
+   ▼
+RabbitMQ
+
+Port: 8080
+
+It participates in the order/payment flow and uses asynchronous messaging.
+
+
+
 12. Dispatch
+Dispatch
+
+Dispatch is a Node.js service.
+
+Dispatch
+   |
+   | RabbitMQ
+   ▼
+RabbitMQ
+
+Port: 8080
+
+Dispatch consumes/processes messages related to order fulfillment.
+
+
+
 13.web
+
+Web is the frontend service.
+
+Web
+ |
+ +----> Catalogue
+ |
+ +----> User
+ |
+ +----> Cart
+ |
+ +----> Shipping
+ |
+ +----> Payment
+ |
+ +----> Ratings
+
+Port: 8080
+
+This is the service that brings the different backend microservices together from the application's user-facing side.
+
+
 14. ingress
+Ingress is not an application microservice.
+
+It is the Kubernetes entry point that routes external HTTP/HTTPS traffic to internal Services.
+
+Internet / Browser
+       |
+       v
+    Ingress
+       |
+       v
+      Web
+
+Ports normally: 80 / 443
+
+Conceptually:
+
+                  Internet
+                     |
+                     v
+                  Ingress
+                     |
+                     v
+                    Web
+                     |
+        +------------+-------------+
+        |            |             |
+        v            v             v
+    Catalogue      Cart         Ratings
+        |            |             |
+        v            v             v
+    MongoDB        Redis        MongoDB
+
+
+
 
 MongoDB PVC learnings:
 
