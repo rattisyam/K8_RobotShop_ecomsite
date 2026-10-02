@@ -1,0 +1,111 @@
+Cart — Kubernetes objects
+
+The architecture is:
+
+                  ┌──────────────────┐
+                  │   Cart Service   │
+                  │   ClusterIP      │
+                  │      :8080       │
+                  └────────┬─────────┘
+                           │
+                           ▼
+                  ┌──────────────────┐
+                  │    Cart Pod      │
+                  │   Node.js app    │
+                  │      :8080       │
+                  └────────┬─────────┘
+                           │
+                           │ Redis :6379
+                           ▼
+                  ┌──────────────────┐
+                  │   Redis Service  │
+                  └────────┬─────────┘
+                           │
+                           ▼
+                  ┌──────────────────┐
+                  │    Redis Pod     │
+                  │   StatefulSet    │
+                  └──────────────────┘
+What Kubernetes objects do we need?
+
+For Cart, initially we need only 2 objects:
+
+Object	Name	Purpose
+Deployment	cart	Runs the Cart Node.js application
+Service	cart	Provides stable network access to Cart Pod
+
+We do not need a PVC for Cart because Cart itself is stateless.
+
+
+This block:
+
+env:
+  - name: INSTANA_AGENT_HOST
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+
+is specifically related to Instana application monitoring/APM.
+
+What is happening?
+
+Kubernetes injects the IP address of the node hosting the Pod into an environment variable:
+
+INSTANA_AGENT_HOST
+        │
+        ▼
+status.hostIP
+        │
+        ▼
+Kubernetes Node IP
+
+For example, suppose:
+
+Cart Pod
+   │
+   └── running on k8s-node1
+              │
+              └── Node IP = 10.0.1.5
+
+Inside the Cart container:
+
+echo $INSTANA_AGENT_HOST
+
+could return:
+
+10.0.1.5
+Why does Instana need this?
+
+Instana can use an agent running on the Kubernetes node to collect application/monitoring information.
+
+So the application gets:
+
+INSTANA_AGENT_HOST=10.0.1.5
+
+and can communicate with the Instana agent associated with that node.
+
+Conceptually:
+
+              Kubernetes Node
+           10.0.1.5
+                │
+       ┌────────┴─────────┐
+       │                  │
+       ▼                  ▼
+  Instana Agent       Cart Pod
+                         │
+                         │
+                 INSTANA_AGENT_HOST
+                         │
+                         └──────► 10.0.1.5
+
+Why is it present in every Robot Shop deployment?
+
+Because the original Robot Shop application was designed with Instana monitoring integration.
+
+
+What is happening?
+
+Kubernetes injects the IP address of the node hosting the Pod into an environment variable:
+
+

@@ -77,3 +77,52 @@ User → MongoDB
 This is a good opportunity to understand one microservice communicating with multiple Kubernetes Services.
 
 
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f userdeployment.yaml
+deployment.apps/user created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f userservice.yaml
+service/user created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get svc
+NAME        TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)     AGE
+catalogue   ClusterIP   10.96.3.123      <none>        8080/TCP    15m
+mongodb     ClusterIP   10.104.73.58     <none>        27017/TCP   82m
+redis       ClusterIP   10.97.211.220    <none>        6379/TCP    48m
+user        ClusterIP   10.102.254.128   <none>        8080/TCP    4s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get deploy
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+catalogue   1/1     1            1           15m
+mongodb     1/1     1            1           85m
+user        0/1     1            0           13s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=user
+NAME                    READY   STATUS              RESTARTS   AGE
+user-8449b7664b-97mqz   0/1     ContainerCreating   0          26s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=user
+NAME                    READY   STATUS              RESTARTS   AGE
+user-8449b7664b-97mqz   0/1     ContainerCreating   0          29s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get deploy
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+catalogue   1/1     1            1           16m
+mongodb     1/1     1            1           86m
+user        0/1     1            0           37s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=user
+NAME                    READY   STATUS    RESTARTS   AGE
+user-8449b7664b-97mqz   1/1     Running   0          40s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+Next: verify the User Service endpoint:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpointslice -l kubernetes.io/service-name=user
+NAME         ADDRESSTYPE   PORTS   ENDPOINTS         AGE
+user-xcdtl   IPv4          8080    192.168.169.170   95s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+1. Quick User validation:
+erify DNS from inside the User pod:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it user-8449b7664b-97mqz -- getent hosts mongodb redis
+10.104.73.58    mongodb.robot-shop.svc.cluster.local
+10.97.211.220   redis.robot-shop.svc.cluster.local
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+So your result proves:
+
+User Pod → Kubernetes DNS → MongoDB/Redis Service
+
