@@ -169,4 +169,178 @@ PV
       ▼
 Azure Managed Disk
 
+reapply the mount data path :
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f redisstatefulset.yaml
+statefulset.apps/redis configured
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f redis-statefulset.yaml^C
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods
+kubectl get pvc
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-8t6fg   1/1     Running   0          36m
+redis-0                    1/1     Running   0          7s
+NAME           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-redis-0   Bound    pvc-b118554a-e6f6-4bd8-bb09-4dc1577b12f8   1Gi        RWO            standard       <unset>                 10m
+mongodb-pvc    Bound    pvc-fb0d8e4f-1f92-4c13-86ca-bdd0a270316c   1Gi        RWO            standard       <unset>                 59m
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
 
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- df -h /data
+df: Warning: cannot read table of mounted file systems: No such file or directory
+Filesystem      Size  Used Avail Use% Mounted on
+-               974M  280K  958M   1% /data
+
+kubectl exec -it redis-0 -- redis-cli SET testkey "hello-redis"
+
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli SET testkey "hello-redis"
+OK
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli GET testkey
+"hello-redis"
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+Before deleting the Pod, let's explicitly force Redis to write its RDB file to /data:
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli SAVE
+OK
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+check data dir:
+OK
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- ls -lh /data
+total 20K
+-rw-r--r-- 1 redis redis 118 Oct  2 17:38 dump.rdb
+drwx------ 2 redis root  16K Oct  2 17:26 lost+found
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+delete redis pod:
+kubectl delete pod redis-0
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-8t6fg   1/1     Running   0          40m
+redis-0                    1/1     Running   0          22s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli GET testkey
+"hello-redis"
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+arch:
+                    ┌─────────────────────────────┐
+                    │        Robot Shop App       │
+                    │   Cart / Other Services     │
+                    └──────────────┬──────────────┘
+                                   │
+                                   │ Redis requests
+                                   │ redis:6379
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │       Kubernetes Service    │
+                    │            redis             │
+                    │         ClusterIP            │
+                    │          Port 6379           │
+                    └──────────────┬──────────────┘
+                                   │
+                                   │ selector:
+                                   │ service=redis
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │       StatefulSet           │
+                    │           redis              │
+                    │        replicas: 1           │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │          Pod redis-0         │
+                    │                             │
+                    │     Redis 4.0.6             │
+                    │     Port: 6379              │
+                    │                             │
+                    │     /data                   │
+                    │       │                     │
+                    │       └── dump.rdb           │
+                    └──────────────┬──────────────┘
+                                   │
+                         volumeMount: /data
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │       PVC data-redis-0      │
+                    │          1 GiB               │
+                    │          RWO                 │
+                    │     StorageClass: standard   │
+                    └──────────────┬──────────────┘
+                                   │
+                         dynamically provisioned
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │       PersistentVolume      │
+                    │   pvc-b118554a-...           │
+                    │                             │
+                    │   CSI: disk.csi.azure.com   │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │     Azure Managed Disk      │
+                    │     StandardSSD_LRS          │
+                    │          1 GiB               │
+                    └─────────────────────────────┘
+
+
+The important Kubernetes flow
+StatefulSet
+     │
+     ├── creates → Pod redis-0
+     │
+     └── creates → PVC data-redis-0
+                         │
+                         ▼
+                    StorageClass
+                     "standard"
+                         │
+                         ▼
+                 Azure CSI Driver
+                 disk.csi.azure.com
+                         │
+                         ▼
+                  Azure Managed Disk
+
+
+What happens when Redis Pod is deleted?
+
+This is the key concept you just demonstrated:
+
+DELETE redis-0
+      │
+      ▼
+StatefulSet controller
+      │
+      ▼
+Creates redis-0 again
+      │
+      ▼
+Existing PVC data-redis-0
+      │
+      ▼
+Same Azure Managed Disk
+      │
+      ▼
+/data/dump.rdb
+      │
+      ▼
+Redis loads previous data
+      │
+      ▼
+GET testkey
+      │
+      ▼
+"hello-redis" ✅
+
+
+One-line architecture to remember
+
+Service → StatefulSet → Redis Pod → /data → PVC → PV → Azure Disk CSI → Azure Managed Disk

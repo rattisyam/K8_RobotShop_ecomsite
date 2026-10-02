@@ -1,0 +1,195 @@
+Catalogue
+
+Catalogue Pod
+     │
+     │ mongodb:27017
+     ▼
+ MongoDB Service
+     │
+     ▼
+ MongoDB Pod
+     │
+     ▼
+ Azure Disk
+
+ Yes. For Robot Shop Catalogue, we should use a Deployment + Service.
+
+ map:
+                  Catalogue
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+          ▼                     ▼
+     Deployment              Service
+     "catalogue"             "catalogue"
+          │                     │
+          ▼                     │
+    Catalogue Pod ◄──────────────┘
+          │
+          │ MongoDB connection
+          ▼
+      mongodb Service
+          │
+          ▼
+      MongoDB Pod
+          │
+          ▼
+       PVC / Azure Disk
+2. Why Deployment?
+
+Catalogue is an application/microservice, not a database.
+
+It does not need its own persistent storage.
+
+A Deployment gives us:
+
+Replica management
+Automatic Pod recreation
+Rolling updates
+Easy scaling
+Versioned ReplicaSets
+Stateless application management
+
+3. Why Service?
+
+The Catalogue Pod needs to be accessed by other Robot Shop microservices.
+
+Pod IPs are not stable, so we don't want other applications connecting directly to a Pod IP.
+
+4. Catalogue → MongoDB
+
+This is the important part for your learning.
+
+Catalogue will communicate with the MongoDB Service:
+
+┌─────────────────┐
+│ Catalogue Pod   │
+│                 │
+│ application     │
+└────────┬────────┘
+         │
+         │ mongodb:27017
+         ▼
+┌─────────────────┐
+│ MongoDB Service │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ MongoDB Pod     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ MongoDB PVC     │
+└────────┬────────┘
+         │
+         ▼
+   Azure Managed
+       Disk
+
+This is a very useful Kubernetes pattern:
+
+Stateless application Deployment → Service → Stateful database
+
+
+5. What we DON'T need for Catalogue
+
+We don't need:
+
+❌ StatefulSet
+❌ PVC
+❌ PV
+❌ volumeClaimTemplates
+
+because Catalogue itself doesn't need persistent disk.
+
+3. One important thing to understand
+
+Notice that Catalogue has:
+
+env:
+  - name: INSTANA_AGENT_HOST
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+
+This is interesting Kubernetes functionality.
+
+We're saying:
+
+"Take the IP address of the Kubernetes node hosting this Pod and inject it into the container as INSTANA_AGENT_HOST."
+
+Conceptually:
+
+Kubernetes Node
+10.0.1.5
+     │
+     │ Pod scheduled here
+     ▼
+Catalogue Pod
+     │
+     │ status.hostIP
+     ▼
+INSTANA_AGENT_HOST=10.0.1.5
+
+This is called the Downward API.
+
+For our initial deployment, we can keep it exactly as the Helm chart has it.
+
+4. Very important: Catalogue → MongoDB
+
+Look carefully at this Deployment.
+
+There is no MongoDB environment variable here.
+
+That might initially look strange because Catalogue needs MongoDB.
+
+But this tells us something important:
+
+The application may have its MongoDB connection configured internally/defaulted rather than through environment variables in this Deployment.
+
+So don't add random MongoDB environment variables yet.
+
+We'll verify how the actual Robot Shop Catalogue image connects to MongoDB before changing anything.
+
+5. What we're deploying
+
+Our Catalogue architecture is currently:
+
+                    Kubernetes
+                        │
+                        ▼
+               ┌─────────────────┐
+               │ Catalogue       │
+               │ Deployment      │
+               │ replicas: 1     │
+               └────────┬────────┘
+                        │
+                        ▼
+                  Catalogue Pod
+                  port 8080
+                        │
+                        │
+                        ▼
+                  MongoDB Service
+                   port 27017
+                        │
+                        ▼
+                  MongoDB Pod
+                        │
+                        ▼
+                   MongoDB PVC
+                        │
+                        ▼
+                 Azure Managed Disk
+
+But there is one more object we need:
+
+
+Catalogue Service
+
+The Deployment creates the Pod, but other Robot Shop services need a stable endpoint to reach it.
+
+
+
