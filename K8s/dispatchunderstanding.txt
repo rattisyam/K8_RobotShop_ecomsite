@@ -1,0 +1,12 @@
+Dispatch is not an HTTP server like Catalogue, Cart, Shipping, or Payment.
+Its basic architecture is:
+
+                 RabbitMQ
+                    |
+              message queue
+                    |
+                    v
+              Dispatch Pod
+                    |
+              processes message
+

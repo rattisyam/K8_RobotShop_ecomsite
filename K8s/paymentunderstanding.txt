@@ -1,0 +1,44 @@
+. Payment
+
+Node.js microservice
+Port 8080
+Communicates with RabbitMQ
+We'll convert the original Helm Deployment → normal Kubernetes YAML
+Create ClusterIP Service
+Verify Pod → Service → DNS → RabbitMQ connectivity
+Check application logs
+
+Payment is a stateless microservice responsible for processing the payment portion of an order.
+
+In the Robot Shop architecture, the important dependency for our Kubernetes learning is RabbitMQ.
+
+Conceptually:
+
+             RabbitMQ
+                 |
+                 |
+             Payment
+                 |
+                 v
+          Payment processing
+
+The important Kubernetes relationship is:
+
+Payment Pod
+     |
+     | rabbitmq:5672
+     v
+RabbitMQ Service
+     |
+     v
+RabbitMQ Pod
+
+This is different from Shipping:
+
+Shipping Pod
+     |
+     | mysql:3306
+     v
+MySQL Service
+
+

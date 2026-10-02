@@ -99,4 +99,240 @@ Payment  ──────┐
                │
         Dispatch
 
-    
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=rabbitmq -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP              NODE        NOMINATED NODE   READINESS GATES
+rabbitmq-7f4fb78bb8-d4w2t   1/1     Running   0          36s   192.168.36.92   k8s-node1   <none>           <none>
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pod -n robot-shop -l service=rabbitmq
+NAME                        READY   STATUS    RESTARTS   AGE
+rabbitmq-7f4fb78bb8-d4w2t   1/1     Running   0          48s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pod -n robot-shop -l service=rabbitmq
+NAME                        READY   STATUS    RESTARTS   AGE
+rabbitmq-7f4fb78bb8-d4w2t   1/1     Running   0          56s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=rabbitmq
+NAME                        READY   STATUS    RESTARTS   AGE
+rabbitmq-7f4fb78bb8-d4w2t   1/1     Running   0          58s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=rabbitmq^C
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl logs -n robot-shop rabbitmq-7f4fb78bb8-d4w2t
+2026-10-02 19:21:05.276 [info] <0.9.0> Feature flags: list of feature flags found:
+2026-10-02 19:21:05.277 [info] <0.9.0> Feature flags: feature flag states written to disk: yes
+2026-10-02 19:21:05.381 [info] <0.245.0>
+ Starting RabbitMQ 3.7.28 on Erlang 22.3.4.7
+ Copyright (c) 2007-2020 Pivotal Software, Inc.
+ Licensed under the MPL.  See https://www.rabbitmq.com/
+
+  ##  ##
+  ##  ##      RabbitMQ 3.7.28. Copyright (c) 2007-2020 Pivotal Software, Inc.
+  ##########  Licensed under the MPL.  See https://www.rabbitmq.com/
+  ######  ##
+  ##########  Logs: <stdout>
+
+              Starting broker...
+2026-10-02 19:21:05.382 [info] <0.245.0>
+ node           : rabbit@rabbitmq-7f4fb78bb8-d4w2t
+ home dir       : /var/lib/rabbitmq
+ config file(s) : /etc/rabbitmq/rabbitmq.conf
+ cookie hash    : 7pAqMM4m8D8C/fzKMMiCbQ==
+ log(s)         : <stdout>
+ database dir   : /var/lib/rabbitmq/mnesia/rabbit@rabbitmq-7f4fb78bb8-d4w2t
+2026-10-02 19:21:05.479 [info] <0.245.0> Running boot step pre_boot defined by app rabbit
+2026-10-02 19:21:05.480 [info] <0.245.0> Running boot step rabbit_core_metrics defined by app rabbit
+2026-10-02 19:21:05.480 [info] <0.245.0> Running boot step rabbit_alarm defined by app rabbit
+2026-10-02 19:21:05.483 [info] <0.251.0> Memory high watermark set to 1542 MiB (1617546444 bytes) of 3856 MiB (4043866112 bytes) total
+2026-10-02 19:21:05.592 [info] <0.253.0> Enabling free disk space monitoring
+2026-10-02 19:21:05.593 [info] <0.253.0> Disk free limit set to 50MB
+2026-10-02 19:21:05.595 [info] <0.245.0> Running boot step code_server_cache defined by app rabbit
+2026-10-02 19:21:05.595 [info] <0.245.0> Running boot step file_handle_cache defined by app rabbit
+2026-10-02 19:21:05.595 [info] <0.256.0> Limiting to approx 924 file handles (829 sockets)
+2026-10-02 19:21:05.596 [info] <0.257.0> FHC read buffering:  OFF
+2026-10-02 19:21:05.596 [info] <0.257.0> FHC write buffering: ON
+2026-10-02 19:21:05.596 [info] <0.245.0> Running boot step worker_pool defined by app rabbit
+2026-10-02 19:21:05.596 [info] <0.246.0> Will use 2 processes for default worker pool
+2026-10-02 19:21:05.596 [info] <0.246.0> Starting worker pool 'worker_pool' with 2 processes in it
+2026-10-02 19:21:05.596 [info] <0.245.0> Running boot step database defined by app rabbit
+2026-10-02 19:21:05.597 [info] <0.245.0> Node database directory at /var/lib/rabbitmq/mnesia/rabbit@rabbitmq-7f4fb78bb8-d4w2t is empty. Assuming we need to join an existing cluster or initialise from scratch...
+2026-10-02 19:21:05.597 [info] <0.245.0> Configured peer discovery backend: rabbit_peer_discovery_classic_config
+2026-10-02 19:21:05.597 [info] <0.245.0> Will try to lock with peer discovery backend rabbit_peer_discovery_classic_config
+2026-10-02 19:21:05.597 [info] <0.245.0> Peer discovery backend does not support locking, falling back to randomized delay
+2026-10-02 19:21:05.597 [info] <0.245.0> Peer discovery backend rabbit_peer_discovery_classic_config does not support registration, skipping randomized startup delay.
+2026-10-02 19:21:05.597 [info] <0.245.0> All discovered existing cluster peers:
+2026-10-02 19:21:05.597 [info] <0.245.0> Discovered no peer nodes to cluster with
+2026-10-02 19:21:05.599 [info] <0.44.0> Application mnesia exited with reason: stopped
+2026-10-02 19:21:05.975 [info] <0.245.0> Waiting for Mnesia tables for 30000 ms, 9 retries left
+2026-10-02 19:21:05.975 [info] <0.245.0> Successfully synced tables from a peer
+2026-10-02 19:21:06.084 [info] <0.245.0> Waiting for Mnesia tables for 30000 ms, 9 retries left
+2026-10-02 19:21:06.084 [info] <0.245.0> Successfully synced tables from a peer
+2026-10-02 19:21:06.189 [info] <0.245.0> Waiting for Mnesia tables for 30000 ms, 9 retries left
+2026-10-02 19:21:06.189 [info] <0.245.0> Successfully synced tables from a peer
+2026-10-02 19:21:06.189 [info] <0.245.0> Peer discovery backend rabbit_peer_discovery_classic_config does not support registration, skipping registration.
+2026-10-02 19:21:06.189 [info] <0.245.0> Running boot step database_sync defined by app rabbit
+2026-10-02 19:21:06.189 [info] <0.245.0> Running boot step feature_flags defined by app rabbit
+2026-10-02 19:21:06.271 [info] <0.245.0> Running boot step codec_correctness_check defined by app rabbit
+2026-10-02 19:21:06.271 [info] <0.245.0> Running boot step external_infrastructure defined by app rabbit
+2026-10-02 19:21:06.271 [info] <0.245.0> Running boot step rabbit_registry defined by app rabbit
+2026-10-02 19:21:06.271 [info] <0.245.0> Running boot step rabbit_auth_mechanism_cr_demo defined by app rabbit
+2026-10-02 19:21:06.271 [info] <0.245.0> Running boot step rabbit_queue_location_random defined by app rabbit
+2026-10-02 19:21:06.272 [info] <0.245.0> Running boot step rabbit_event defined by app rabbit
+2026-10-02 19:21:06.272 [info] <0.245.0> Running boot step rabbit_auth_mechanism_amqplain defined by app rabbit
+2026-10-02 19:21:06.272 [info] <0.245.0> Running boot step rabbit_auth_mechanism_plain defined by app rabbit
+2026-10-02 19:21:06.272 [info] <0.245.0> Running boot step rabbit_exchange_type_direct defined by app rabbit
+2026-10-02 19:21:06.272 [info] <0.245.0> Running boot step rabbit_exchange_type_fanout defined by app rabbit
+2026-10-02 19:21:06.272 [info] <0.245.0> Running boot step rabbit_exchange_type_headers defined by app rabbit
+2026-10-02 19:21:06.273 [info] <0.245.0> Running boot step rabbit_exchange_type_topic defined by app rabbit
+2026-10-02 19:21:06.273 [info] <0.245.0> Running boot step rabbit_mirror_queue_mode_all defined by app rabbit
+2026-10-02 19:21:06.273 [info] <0.245.0> Running boot step rabbit_mirror_queue_mode_exactly defined by app rabbit
+2026-10-02 19:21:06.273 [info] <0.245.0> Running boot step rabbit_mirror_queue_mode_nodes defined by app rabbit
+2026-10-02 19:21:06.273 [info] <0.245.0> Running boot step rabbit_priority_queue defined by app rabbit
+2026-10-02 19:21:06.273 [info] <0.245.0> Priority queues enabled, real BQ is rabbit_variable_queue
+2026-10-02 19:21:06.273 [info] <0.245.0> Running boot step rabbit_queue_location_client_local defined by app rabbit
+2026-10-02 19:21:06.273 [info] <0.245.0> Running boot step rabbit_queue_location_min_masters defined by app rabbit
+2026-10-02 19:21:06.274 [info] <0.245.0> Running boot step kernel_ready defined by app rabbit
+2026-10-02 19:21:06.274 [info] <0.245.0> Running boot step rabbit_sysmon_minder defined by app rabbit
+2026-10-02 19:21:06.274 [info] <0.245.0> Running boot step rabbit_epmd_monitor defined by app rabbit
+2026-10-02 19:21:06.276 [info] <0.423.0> epmd monitor knows us, inter-node communication (distribution) port: 25672
+2026-10-02 19:21:06.276 [info] <0.245.0> Running boot step guid_generator defined by app rabbit
+2026-10-02 19:21:06.281 [info] <0.245.0> Running boot step rabbit_node_monitor defined by app rabbit
+2026-10-02 19:21:06.281 [info] <0.429.0> Starting rabbit_node_monitor
+2026-10-02 19:21:06.281 [info] <0.245.0> Running boot step delegate_sup defined by app rabbit
+2026-10-02 19:21:06.282 [info] <0.245.0> Running boot step rabbit_memory_monitor defined by app rabbit
+2026-10-02 19:21:06.282 [info] <0.245.0> Running boot step core_initialized defined by app rabbit
+2026-10-02 19:21:06.282 [info] <0.245.0> Running boot step upgrade_queues defined by app rabbit
+2026-10-02 19:21:06.388 [info] <0.245.0> message_store upgrades: 1 to apply
+2026-10-02 19:21:06.388 [info] <0.245.0> message_store upgrades: Applying rabbit_variable_queue:move_messages_to_vhost_store
+2026-10-02 19:21:06.388 [info] <0.245.0> message_store upgrades: No durable queues found. Skipping message store migration
+2026-10-02 19:21:06.388 [info] <0.245.0> message_store upgrades: Removing the old message store data
+2026-10-02 19:21:06.389 [info] <0.245.0> message_store upgrades: All upgrades applied successfully
+2026-10-02 19:21:06.582 [info] <0.245.0> Running boot step rabbit_connection_tracking defined by app rabbit
+2026-10-02 19:21:06.583 [info] <0.245.0> Running boot step rabbit_connection_tracking_handler defined by app rabbit
+2026-10-02 19:21:06.583 [info] <0.245.0> Running boot step rabbit_exchange_parameters defined by app rabbit
+2026-10-02 19:21:06.583 [info] <0.245.0> Running boot step rabbit_mirror_queue_misc defined by app rabbit
+2026-10-02 19:21:06.583 [info] <0.245.0> Running boot step rabbit_policies defined by app rabbit
+2026-10-02 19:21:06.584 [info] <0.245.0> Running boot step rabbit_policy defined by app rabbit
+2026-10-02 19:21:06.584 [info] <0.245.0> Running boot step rabbit_queue_location_validator defined by app rabbit
+2026-10-02 19:21:06.584 [info] <0.245.0> Running boot step rabbit_vhost_limit defined by app rabbit
+2026-10-02 19:21:06.584 [info] <0.245.0> Running boot step rabbit_mgmt_reset_handler defined by app rabbitmq_management
+2026-10-02 19:21:06.584 [info] <0.245.0> Running boot step rabbit_mgmt_db_handler defined by app rabbitmq_management_agent
+2026-10-02 19:21:06.584 [info] <0.245.0> Management plugin: using rates mode 'basic'
+2026-10-02 19:21:06.585 [info] <0.245.0> Running boot step recovery defined by app rabbit
+2026-10-02 19:21:06.586 [info] <0.245.0> Running boot step load_definitions defined by app rabbitmq_management
+2026-10-02 19:21:06.586 [info] <0.245.0> Running boot step empty_db_check defined by app rabbit
+2026-10-02 19:21:06.586 [info] <0.245.0> Adding vhost '/'
+2026-10-02 19:21:06.618 [info] <0.470.0> Making sure data directory '/var/lib/rabbitmq/mnesia/rabbit@rabbitmq-7f4fb78bb8-d4w2t/msg_stores/vhosts/628WB79CIFDYO9LJI6DKMI09L' for vhost '/' exists
+2026-10-02 19:21:06.677 [info] <0.470.0> Starting message stores for vhost '/'
+2026-10-02 19:21:06.677 [info] <0.474.0> Message store "628WB79CIFDYO9LJI6DKMI09L/msg_store_transient": using rabbit_msg_store_ets_index to provide index
+2026-10-02 19:21:06.678 [info] <0.470.0> Started message store of type transient for vhost '/'
+2026-10-02 19:21:06.678 [info] <0.477.0> Message store "628WB79CIFDYO9LJI6DKMI09L/msg_store_persistent": using rabbit_msg_store_ets_index to provide index
+2026-10-02 19:21:06.679 [warning] <0.477.0> Message store "628WB79CIFDYO9LJI6DKMI09L/msg_store_persistent": rebuilding indices from scratch
+2026-10-02 19:21:06.680 [info] <0.470.0> Started message store of type persistent for vhost '/'
+2026-10-02 19:21:06.681 [info] <0.245.0> Creating user 'guest'
+2026-10-02 19:21:06.686 [info] <0.245.0> Setting user tags for user 'guest' to [administrator]
+2026-10-02 19:21:06.690 [info] <0.245.0> Setting permissions for 'guest' in '/' to '.*', '.*', '.*'
+2026-10-02 19:21:06.694 [info] <0.245.0> Running boot step rabbit_looking_glass defined by app rabbit
+2026-10-02 19:21:06.694 [info] <0.245.0> Running boot step rabbit_core_metrics_gc defined by app rabbit
+2026-10-02 19:21:06.694 [info] <0.245.0> Running boot step background_gc defined by app rabbit
+2026-10-02 19:21:06.695 [info] <0.245.0> Running boot step connection_tracking defined by app rabbit
+2026-10-02 19:21:06.700 [info] <0.245.0> Setting up a table for connection tracking on this node: 'tracked_connection_on_node_rabbit@rabbitmq-7f4fb78bb8-d4w2t'
+2026-10-02 19:21:06.706 [info] <0.245.0> Setting up a table for per-vhost connection counting on this node: 'tracked_connection_per_vhost_on_node_rabbit@rabbitmq-7f4fb78bb8-d4w2t'
+2026-10-02 19:21:06.706 [info] <0.245.0> Running boot step routing_ready defined by app rabbit
+2026-10-02 19:21:06.706 [info] <0.245.0> Running boot step pre_flight defined by app rabbit
+2026-10-02 19:21:06.706 [info] <0.245.0> Running boot step notify_cluster defined by app rabbit
+2026-10-02 19:21:06.706 [info] <0.245.0> Running boot step networking defined by app rabbit
+2026-10-02 19:21:06.770 [info] <0.523.0> started TCP listener on [::]:5672
+2026-10-02 19:21:06.771 [info] <0.245.0> Running boot step cluster_name defined by app rabbit
+2026-10-02 19:21:06.771 [info] <0.245.0> Running boot step direct_client defined by app rabbit
+2026-10-02 19:21:06.771 [info] <0.245.0> Running boot step os_signal_handler defined by app rabbit
+2026-10-02 19:21:06.772 [info] <0.525.0> Swapping OS signal event handler (erl_signal_server) for our own
+2026-10-02 19:21:06.886 [info] <0.575.0> Management plugin: HTTP (non-TLS) listener started on port 15672
+2026-10-02 19:21:06.886 [info] <0.681.0> Statistics database started.
+2026-10-02 19:21:06.886 [info] <0.680.0> Starting worker pool 'management_worker_pool' with 3 processes in it
+ completed with 3 plugins.
+2026-10-02 19:21:07.975 [info] <0.9.0> Server startup complete; 3 plugins started.
+ * rabbitmq_management
+ * rabbitmq_management_agent
+ * rabbitmq_web_dispatch
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpointslice \
+  -n robot-shop \
+  -l kubernetes.io/service-name=rabbitmq
+NAME             ADDRESSTYPE   PORTS             ENDPOINTS       AGE
+rabbitmq-mzr7v   IPv4          4369,5672,15672   192.168.36.92   93s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+5. Test Kubernetes DNS:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run rabbitmq-dns-test \
+  -n robot-shop \
+  --rm -it \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -- nslookup rabbitmq
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+pod "rabbitmq-dns-test" deleted from robot-shop namespace
+pod robot-shop/rabbitmq-dns-test terminated (Error)
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run rabbitmq-dns-test \
+  -n robot-shop \
+  --image=busybox:1.36 \
+  --restart=Never \
+  --command -- nslookup rabbitmq
+pod/rabbitmq-dns-test created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run rabbitmq-dns-test \
+  -n robot-shop \
+  --image=busybox:1.36 \
+  --restart=Never \
+  --command -- nslookup rabbitmq^C
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl logs rabbitmq-dns-test -n robot-shop
+Server:         10.96.0.10
+Address:        10.96.0.10:53
+
+Name:   rabbitmq.robot-shop.svc.cluster.local
+Address: 10.110.183.14
+
+** server can't find rabbitmq.svc.cluster.local: NXDOMAIN
+
+
+** server can't find rabbitmq.cluster.local: NXDOMAIN
+
+** server can't find rabbitmq.svc.cluster.local: NXDOMAIN
+
+** server can't find rabbitmq.cluster.local: NXDOMAIN
+
+** server can't find rabbitmq.etsozsbuv4vu5pckvhbnsyl4ug.rx.internal.cloudapp.net: NXDOMAIN
+
+** server can't find rabbitmq.etsozsbuv4vu5pckvhbnsyl4ug.rx.internal.cloudapp.net: NXDOMAIN
+
+
+
+What this proves
+
+Your temporary Pod asked Kubernetes DNS:
+
+rabbitmq
+   ↓
+CoreDNS
+10.96.0.10
+   ↓
+rabbitmq.robot-shop.svc.cluster.local
+   ↓
+10.110.183.14
+
+
+Next: Test actual RabbitMQ connectivity:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run rabbitmq-test \
+  -n robot-shop \
+  --rm -it \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -- sh
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+/ #
+/ #
+/ # nc -zv rabbitmq 5672
+rabbitmq (10.110.183.14:5672) open
+
+
+
