@@ -1,0 +1,102 @@
+RabbitMQ is the next important component because Robot Shop uses it for asynchronous communication between microservices, especially around the order/payment/dispatch flow.
+
+Why RabbitMQ is required
+
+Think of the architecture like this:
+
+User places order
+      |
+      v
+     Cart
+      |
+      v
+   RabbitMQ
+      |
+      +--------> Payment
+      |
+      +--------> Dispatch
+
+Instead of one service directly calling another and waiting for it to finish, a service can publish a message to RabbitMQ.
+
+For example:
+
+"Order #123 has been placed"
+
+RabbitMQ stores/routes that message in a queue, and services such as Payment and Dispatch consume it.
+
+Why this is useful in a microservices architecture
+Without RabbitMQ	With RabbitMQ
+Service-to-service direct calls	Asynchronous messaging
+Tighter coupling	Looser coupling
+Caller may wait for receiver	Producer doesn't need to wait
+Receiver failure can affect request	Message can remain queued
+Difficult to handle bursts	Queue can absorb traffic
+
+For your Kubernetes learning, RabbitMQ is particularly useful because you'll learn another important Kubernetes pattern:
+
+                 Kubernetes
+                     |
+              RabbitMQ Service
+                     |
+                RabbitMQ Pod
+                     |
+              Message Queues
+               /           \
+              /             \
+         Payment          Dispatch
+
+This is different from what you learned with MongoDB/MySQL:
+
+Catalogue ──> MongoDB
+Shipping  ──> MySQL
+Cart      ──> Redis
+
+RabbitMQ is not a database. It is a message broker.
+
+
+Your Robot Shop learning sequence
+
+You have now covered:
+
+MongoDB       → Database
+Redis         → Cache / cart state
+Catalogue     → Stateless microservice
+User          → Stateless microservice
+Cart          → Redis-dependent service
+MySQL         → Database
+Shipping      → MySQL-dependent service
+Ratings       → MySQL-dependent service
+
+Next:
+
+RabbitMQ      → Message Broker
+Payment       → RabbitMQ-dependent service
+Dispatch      → RabbitMQ-dependent service
+Web           → Frontend / service consumer
+Ingress       → External entry point
+
+
+RabbitMQ ports
+
+For the Robot Shop/Kubernetes deployment, the important ports are:
+
+5672   → AMQP messaging
+15672  → RabbitMQ Management UI
+
+
+Conceptually:
+
+Payment  ──────┐
+               │
+               v
+          +-----------+
+          | RabbitMQ  |
+          |           |
+          |  :5672    |
+          | :15672    |
+          +-----------+
+               ^
+               │
+        Dispatch
+
+    

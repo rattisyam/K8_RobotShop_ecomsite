@@ -152,4 +152,101 @@ A Java container can be Running while the application is still starting.
 
 That's why readiness probes are very important for Java/Spring Boot-style services.
 
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get svc
+NAME        TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)     AGE
+cart        ClusterIP   10.109.101.89    <none>        8080/TCP    33m
+catalogue   ClusterIP   10.96.3.123      <none>        8080/TCP    63m
+mongodb     ClusterIP   10.104.73.58     <none>        27017/TCP   130m
+mysql       ClusterIP   10.97.237.15     <none>        3306/TCP    18m
+redis       ClusterIP   10.97.211.220    <none>        6379/TCP    95m
+shipping    ClusterIP   10.102.202.150   <none>        8080/TCP    6s
+user        ClusterIP   10.102.254.128   <none>        8080/TCP    47m
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods
+NAME                         READY   STATUS              RESTARTS   AGE
+cart-67c7476467-tr7s8        1/1     Running             0          34m
+catalogue-7898454858-4v6fq   1/1     Running             0          63m
+mongodb-6465489f5f-8t6fg     1/1     Running             0          123m
+mysql-74f87f9fc8-69ggw       1/1     Running             0          18m
+redis-0                      1/1     Running             0          83m
+shipping-f4d9b999-k5qlj      0/1     ContainerCreating   0          15s
+user-8449b7664b-97mqz        1/1     Running             0          47m
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpoints shipping
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME       ENDPOINTS   AGE
+shipping               22s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=shipping
+NAME                      READY   STATUS    RESTARTS   AGE
+shipping-f4d9b999-k5qlj   0/1     Running   0          38s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=shipping
+NAME                      READY   STATUS    RESTARTS   AGE
+shipping-f4d9b999-k5qlj   0/1     Running   0          45s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=shipping
+NAME                      READY   STATUS    RESTARTS   AGE
+shipping-f4d9b999-k5qlj   1/1     Running   0          2m19s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+3. Test Shipping health endpoint:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=shipping
+NAME                      READY   STATUS    RESTARTS   AGE
+shipping-f4d9b999-k5qlj   1/1     Running   0          3m33s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it shipping-f4d9b999-k5qlj -- \
+  curl -i http://localhost:8080/health
+HTTP/1.1 200
+Content-Type: text/plain;charset=ISO-8859-1
+Content-Length: 2
+Date: Fri, 02 Oct 2026 19:06:27 GMT
+
+OKazureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifes
+
+
+Test Shipping Service from another Pod:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run shipping-test \ \
+  --rm -it \
+  --image=curlimages/curl \
+  --restart=Never \
+  -- curl -i http://shipping:8080/health
+HTTP/1.1 200
+Content-Type: text/plain;charset=ISO-8859-1
+Content-Length: 2
+Date: Fri, 02 Oct 2026 19:07:00 GMT
+
+OKpod "shipping-test" deleted from robot-shop namespace
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+
+Test Shipping → MySQL:
+This is the next important test because Shipping depends on MySQL.
+
+First verify DNS from the Shipping Pod:
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it shipping-f4d9b999-k5qlj -- \
+  getent hosts mysql
+10.97.237.15    mysql.robot-shop.svc.cluster.local
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+Then check MySQL port
+
+Because the Shipping image may not contain nc, telnet, etc., don't assume a failed shell command means the network is broken.
+
+We can use a temporary debugging Pod:
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run mysql-test \
+  --rm -it \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -- sh
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+/ #
+/ #
+/ # nc -zv mysql 3306
+mysql (10.97.237.15:3306) open
+/ #
+
+
+Check Shipping logs:
+
+
+
 

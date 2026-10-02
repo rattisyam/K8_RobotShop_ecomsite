@@ -69,4 +69,26 @@ mysql:3306
 
 The official Robot Shop configuration confirms the Ratings → MySQL dependency
 
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f ratingsdeployment.yaml
+deployment.apps/ratings created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f ratingsservice.yaml
+service/ratings created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get svc -l service=ratings
+NAME      TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+ratings   ClusterIP   10.103.53.36   <none>        80/TCP    11s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get deploy -l service=ratings
+NAME      READY   UP-TO-DATE   AVAILABLE   AGE
+ratings   0/1     1            0           24s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -l service=ratings
+NAME                     READY   STATUS    RESTARTS   AGE
+ratings-d5b7d45c-g7qwd   1/1     Running   0          32s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpoints ratings
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME      ENDPOINTS            AGE
+ratings   192.168.169.172:80   41s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+
+3. Check the Ratings logs:
 
