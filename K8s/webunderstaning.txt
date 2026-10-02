@@ -1,0 +1,74 @@
+Your architecture understanding is correct:
+
+                    Web
+                     |
+       +-------------+-------------+
+       |       |       |     |     | 
+       ↓       ↓       ↓     ↓     ↓
+   Catalogue  User    Cart  Shipping Payment
+                                     
+                     +
+                   Ratings
+
+
+The important Kubernetes point is that Web is the user-facing service, while the backend services remain ClusterIP services.
+
+
+The Web Service is a good place to understand Kubernetes Service types because Web is the first component that users need to access from outside the cluster
+
+
+Why NodePort?
+
+This is the most important part.
+
+Normally a Kubernetes ClusterIP Service is accessible only inside the cluster.
+
+For example:
+
+             Kubernetes Cluster
+        ┌─────────────────────────┐
+        │                         │
+        │  Web Service            │
+        │  ClusterIP:8080         │
+        │       ↓                 │
+        │     Web Pod             │
+        │                         │
+        └─────────────────────────┘
+
+             ❌ Internet
+
+But Web is the frontend.
+
+We eventually want:
+
+Your Browser
+     ↓
+Kubernetes
+     ↓
+Web
+
+For our manual kubeadm lab, we therefore chose:
+
+type: NodePort
+
+NodePort exposes the Service through a port on every Kubernetes node.
+
+For example, Kubernetes may assign:
+
+NodePort = 30080
+
+Then:
+
+k8s-master:30080
+k8s-node1:30080
+k8s-node2:30080
+
+can route to the Web Service.
+
+The exact NodePort will be shown by:
+
+kubectl get svc web -n robot-shop
+
+
+
+

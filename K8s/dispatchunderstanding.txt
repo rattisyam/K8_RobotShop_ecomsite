@@ -10,3 +10,78 @@ Its basic architecture is:
                     |
               processes message
 
+Test 1 — Dispatch Pod and logs:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f dispatch
+error: the path "dispatch" does not exist
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f dispatchdeployment.yaml
+deployment.apps/dispatch created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f dispatchservice.yaml
+service/dispatch created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=dispatch -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP              NODE        NOMINATED NODE   READINESS GATES
+dispatch-54f7f47d5d-ss5pw   1/1     Running   0          29s   192.168.36.94   k8s-node1   <none>           <none>
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl logs -n robot-shop -l service=dispatch --tail=100
+2026/10/02 19:43:41 instana: WARN: Stan is on the scene. Starting Instana instrumentation.
+2026/10/02 19:43:41 Error Percent is 0
+2026/10/02 19:43:41 Connecting to amqp://guest:guest@rabbitmq:5672/
+2026/10/02 19:43:41 Waiting for messages
+2026/10/02 19:43:41 instana: INFO: failed to send a request to http://10.0.1.5:42699/: Get "http://10.0.1.5:42699/": dial tcp 10.0.1.5:42699: connect: connection refused
+2026/10/02 19:43:41 Rabbit MQ ready true
+2026/10/02 19:43:46 instana: INFO: failed to send a request to http://169.254.1.1:42699/: Get "http://169.254.1.1:42699/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026/10/02 19:43:46 instana: ERROR: cannot connect to the agent through localhost or default gateway, scheduling retry
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+Test 2 — Dispatch → RabbitMQ connectivity
+
+This is the most important infrastructure test.
+
+Run:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -n robot-shop \
+  $(kubectl get pod -n robot-shop -l service=dispatch -o jsonpath='{.items[0].metadata.name}') \
+  -- sh -c 'nc -zv rabbitmq 5672'
+sh: 1: nc: not found
+command terminated with exit code 127
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run dispatch-rabbit-test \
+  -n robot-shop \
+  --rm -it \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -- sh
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+/ #
+/ #
+/ # nc -zv rabbitmq 5672
+rabbitmq (10.110.183.14:5672) open
+/ # exit
+pod "dispatch-rabbit-test" deleted from robot-shop namespace
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+Test 3 — Verify Dispatch is actually consuming messages:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl logs -n robot-shop -l service=dispatch --tail=200 -f
+2026/10/02 19:43:41 instana: WARN: Stan is on the scene. Starting Instana instrumentation.
+2026/10/02 19:43:41 Error Percent is 0
+2026/10/02 19:43:41 Connecting to amqp://guest:guest@rabbitmq:5672/
+2026/10/02 19:43:41 Waiting for messages
+2026/10/02 19:43:41 instana: INFO: failed to send a request to http://10.0.1.5:42699/: Get "http://10.0.1.5:42699/": dial tcp 10.0.1.5:42699: connect: connection refused
+2026/10/02 19:43:41 Rabbit MQ ready true
+2026/10/02 19:43:46 instana: INFO: failed to send a request to http://169.254.1.1:42699/: Get "http://169.254.1.1:42699/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026/10/02 19:43:46 instana: ERROR: cannot connect to the agent through localhost or default gateway, scheduling retry
+2026/10/02 19:44:16 instana: INFO: failed to send a request to http://10.0.1.5:42699/: Get "http://10.0.1.5:42699/": dial tcp 10.0.1.5:42699: connect: connection refused
+2026/10/02 19:44:21 instana: INFO: failed to send a request to http://169.254.1.1:42699/: Get "http://169.254.1.1:42699/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026/10/02 19:44:21 instana: ERROR: cannot connect to the agent through localhost or default gateway, scheduling retry
+2026/10/02 19:44:51 instana: INFO: failed to send a request to http://10.0.1.5:42699/: Get "http://10.0.1.5:42699/": dial tcp 10.0.1.5:42699: connect: connection refused
+2026/10/02 19:44:56 instana: INFO: failed to send a request to http://169.254.1.1:42699/: Get "http://169.254.1.1:42699/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026/10/02 19:44:56 instana: ERROR: cannot connect to the agent through localhost or default gateway, scheduling retry
+2026/10/02 19:45:26 instana: INFO: failed to send a request to http://10.0.1.5:42699/: Get "http://10.0.1.5:42699/": dial tcp 10.0.1.5:42699: connect: connection refused
+2026/10/02 19:45:31 instana: INFO: failed to send a request to http://169.254.1.1:42699/: Get "http://169.254.1.1:42699/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026/10/02 19:45:31 instana: ERROR: cannot connect to the agent through localhost or default gateway, scheduling retry
+2026/10/02 19:45:41 instana: ERROR: Failed sending profiles, backing off next sending
+2026/10/02 19:45:41 instana: ERROR: sender not ready

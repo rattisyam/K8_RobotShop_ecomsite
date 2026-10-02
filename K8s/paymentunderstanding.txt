@@ -42,3 +42,160 @@ Shipping Pod
 MySQL Service
 
 
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite$ cd k8manifests/
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f paymentdeployment.yaml
+deployment.apps/payment created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f paymentservice.yaml
+service/payment created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=payment -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP                NODE        NOMINATED NODE   READINESS GATES
+payment-5d8cd6f594-gt8dd   1/1     Running   0          45s   192.168.169.176   k8s-node2   <none>           <none>
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=payment -o wide^C
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=payment,stage=prod
+NAME                       READY   STATUS    RESTARTS   AGE
+payment-5d8cd6f594-gt8dd   1/1     Running   0          55s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -n robot-shop -l service=payment,stage=prod^C
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpointslice \
+  -n robot-shop \
+  -l kubernetes.io/service-name=payment
+NAME            ADDRESSTYPE   PORTS   ENDPOINTS         AGE
+payment-nvhzr   IPv4          8080    192.168.169.176   89s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpointslice \
+  -n robot-shop \
+  -l kubernetes.io/service-name=payment^C
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl logs -n robot-shop -l service=payment
+Python main interpreter initialized at 0x6201c7ad6de0
+python threads support enabled
+your server socket listen backlog is limited to 100 connections
+your mercy for graceful operations on workers is 60 seconds
+mapped 145840 bytes (142 KB) for 1 cores
+*** Operational MODE: single process ***
+*** uWSGI is running in multiple interpreter mode ***
+spawned uWSGI master process (pid: 1)
+spawned uWSGI worker 1 (pid: 7, cores: 1)
+WSGI app 0 (mountpoint='') ready in 2 seconds on interpreter 0x6201c7ad6de0 pid: 7 (default app)
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get svc payment -n robot-shop
+NAME      TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+payment   ClusterIP   10.104.28.107   <none>        8080/TCP   3m9s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run payment-test \
+  -n robot-shop \
+  --rm -it \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -- sh
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+/ #
+/ #
+/ # nc -zv payment 8080
+payment (10.104.28.107:8080) open
+/ #
+
+This validates:
+
+Test Pod
+   ↓
+payment:8080
+   ↓
+Payment Service
+   ↓
+Payment Pod
+
+
+
+Test 2 — Payment → RabbitMQ:
+This is more important because RabbitMQ is Payment's messaging dependency.
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run payment-rabbit-test \
+  -n robot-shop \
+  --rm -it \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -- sh
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+/ #
+/ #
+/ # nc -zv rabbitmq 5672
+rabbitmq (10.110.183.14:5672) open
+/ #
+
+This proves the Kubernetes network path:
+
+Payment namespace
+       ↓
+RabbitMQ Service
+       ↓
+RabbitMQ Pod
+       ↓
+AMQP :5672
+
+Important: this proves network connectivity, not that Payment has successfully published/consumed an actual RabbitMQ message.
+
+
+Test 3 — Test Payment HTTP endpoint:
+Because Payment is running uWSGI on port 8080, let's see whether it responds to an HTTP request.
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run payment-http-test \
+  -n robot-shop \
+  --rm -it \
+  --image=curlimages/curl:8.10.1 \
+  --restart=Never \
+  -- curl -i http://payment:8080/
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+pod "payment-http-test" deleted from robot-shop namespace
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl run payment-http-test \
+  -n robot-shop \
+  --image=curlimages/curl:8.10.1 \
+  --restart=Never \
+  -- curl -i -v --max-time 10 http://payment:8080/
+pod/payment-http-test created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl logs payment-http-test -n robot-shop
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Host payment:8080 was resolved.
+* IPv6: (none)
+* IPv4: 10.104.28.107
+*   Trying 10.104.28.107:8080...
+* Connected to payment (10.104.28.107) port 8080
+* using HTTP/1.x
+> GET / HTTP/1.1
+> Host: payment:8080
+> User-Agent: curl/8.10.1
+> Accept: */*
+>
+* Request completely sent off
+HTTP/1.1 500 INTERNAL SERVER ERROR
+Content-Type: text/html; charset=utf-8
+Content-Length: 135
+
+< HTTP/1.1 500 INTERNAL SERVER ERROR
+< Content-Type: text/html; charset=utf-8
+< Content-Length: 135
+<
+{ [135 bytes data]
+100   135  100   135    0     0  33707      0 --:--:-- --:--:-- --:--:-- 45000
+* Connection #0 to host payment left intact
+404 Not Found: The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl delete pod payment-http-test -n robot-shop
+pod "payment-http-test" deleted from robot-shop namespace
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests
+
+this test is actually successful from the Kubernetes/networking perspective. The important part is:
+
+* Host payment:8080 was resolved.
+* IPv4: 10.104.28.107
+* Connected to payment (10.104.28.107) port 8080
+What we proved
+Temporary Test Pod
+       ↓
+payment DNS
+       ↓
+Payment Service 10.104.28.107:8080
+       ↓
+Payment Pod
+       ↓
+uWSGI application
