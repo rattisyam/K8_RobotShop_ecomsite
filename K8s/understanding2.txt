@@ -47,3 +47,12 @@ NAME                 ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENRE
 csi.tigera.io        true             true             false             <unset>         false               Ephemeral    2d6h
 disk.csi.azure.com   true             false            false             <unset>         false               Persistent   4h42m
 azureuser@devops-agent:~$
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pvc -n robot-shop
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+mongodb-pvc   Bound    pvc-fb0d8e4f-1f92-4c13-86ca-bdd0a270316c   1Gi        RWO            standard       <unset>                 3m57s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+
