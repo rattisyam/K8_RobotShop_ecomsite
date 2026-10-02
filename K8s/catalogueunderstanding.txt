@@ -193,3 +193,358 @@ The Deployment creates the Pod, but other Robot Shop services need a stable endp
 
 
 
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f cataloguedeployment.yaml
+deployment.apps/catalogue created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f catalogueservice.yaml
+service/catalogue created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods
+NAME                         READY   STATUS    RESTARTS   AGE
+catalogue-7898454858-4v6fq   1/1     Running   0          58s
+mongodb-6465489f5f-8t6fg     1/1     Running   0          60m
+redis-0                      1/1     Running   0          20m
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get svc
+NAME        TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
+catalogue   ClusterIP   10.96.3.123     <none>        8080/TCP    64s
+mongodb     ClusterIP   10.104.73.58    <none>        27017/TCP   68m
+redis       ClusterIP   10.97.211.220   <none>        6379/TCP    33m
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+NAME              ADDRESSTYPE   PORTS   ENDPOINTS       AGE
+catalogue-4lgqg   IPv4          8080    192.168.36.87   119s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+his confirms the Catalogue Service → Catalogue Pod path is working correctly.
+
+What your output proves
+
+You now have:
+
+Catalogue Service
+ClusterIP: 10.96.3.123
+Port: 8080
+       │
+       │ selector: service=catalogue
+       ▼
+Catalogue Pod
+IP: 192.168.36.87
+Port: 8080
+
+The critical line is:
+
+Endpoints: 192.168.36.87:8080
+
+This means Kubernetes found your Catalogue Pod and registered it as a backend for the Service
+
+Complete Catalogue Kubernetes flow
+                Other Robot Shop Services
+                         │
+                         │ catalogue:8080
+                         ▼
+              ┌──────────────────────┐
+              │ Catalogue Service    │
+              │ Type: ClusterIP      │
+              │ IP: 10.96.3.123      │
+              │ Port: 8080           │
+              └──────────┬───────────┘
+                         │
+                  selector:
+                  service=catalogue
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │ Catalogue Pod        │
+              │ IP: 192.168.36.87    │
+              │ Port: 8080           │
+              └──────────┬───────────┘
+                         │
+                         │ MongoDB
+                         ▼
+              ┌──────────────────────┐
+              │ MongoDB Service      │
+              │ mongodb:27017        │
+              └──────────┬───────────┘
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │ MongoDB Pod          │
+              │ :27017               │
+              └──────────┬───────────┘
+                         │
+                         ▼
+                   MongoDB PVC
+                         │
+                         ▼
+                  Azure Managed Disk
+One important Kubernetes concept you've just demonstrated
+
+The Catalogue Pod IP is:
+
+192.168.36.87
+
+Don't configure another application to permanently use this IP.
+
+Instead, applications use:
+
+catalogue:8080
+
+Kubernetes DNS resolves catalogue to the Service:
+
+catalogue
+   ↓
+10.96.3.123
+   ↓
+192.168.36.87:8080
+
+If the Catalogue Pod is deleted and recreated with a different Pod IP, Kubernetes automatically updates the EndpointSlice.
+
+That's one of the main reasons we use Services.
+
+
+Next: verify Catalogue's MongoDB communication
+
+Now we're at the interesting part.
+
+Before moving to the next Robot Shop component, let's prove:
+
+Catalogue Pod → MongoDB Service → MongoDB Pod
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it catalogue-7898454858-4v6fq -- printenv
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+HOSTNAME=catalogue-7898454858-4v6fq
+NODE_VERSION=14.17.5
+YARN_VERSION=1.22.5
+INSTANA_AUTO_PROFILE=true
+INSTANA_AGENT_HOST=10.0.1.5
+MONGODB_PORT=tcp://10.104.73.58:27017
+CATALOGUE_PORT=tcp://10.96.3.123:8080
+KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
+REDIS_PORT_6379_TCP_PORT=6379
+KUBERNETES_SERVICE_PORT_HTTPS=443
+REDIS_PORT_6379_TCP=tcp://10.97.211.220:6379
+REDIS_PORT_6379_TCP_PROTO=tcp
+MONGODB_SERVICE_PORT=27017
+KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
+MONGODB_PORT_27017_TCP_PORT=27017
+CATALOGUE_SERVICE_PORT=8080
+KUBERNETES_SERVICE_PORT=443
+REDIS_SERVICE_PORT_REDIS=6379
+MONGODB_SERVICE_HOST=10.104.73.58
+MONGODB_PORT_27017_TCP_PROTO=tcp
+CATALOGUE_SERVICE_PORT_HTTP=8080
+CATALOGUE_PORT_8080_TCP_PROTO=tcp
+CATALOGUE_PORT_8080_TCP_PORT=8080
+KUBERNETES_SERVICE_HOST=10.96.0.1
+KUBERNETES_PORT_443_TCP_PROTO=tcp
+REDIS_SERVICE_HOST=10.97.211.220
+REDIS_PORT_6379_TCP_ADDR=10.97.211.220
+MONGODB_PORT_27017_TCP=tcp://10.104.73.58:27017
+CATALOGUE_PORT_8080_TCP=tcp://10.96.3.123:8080
+KUBERNETES_PORT_443_TCP_PORT=443
+MONGODB_SERVICE_PORT_MONGO=27017
+MONGODB_PORT_27017_TCP_ADDR=10.104.73.58
+KUBERNETES_PORT=tcp://10.96.0.1:443
+REDIS_PORT=tcp://10.97.211.220:6379
+CATALOGUE_SERVICE_HOST=10.96.3.123
+CATALOGUE_PORT_8080_TCP_ADDR=10.96.3.123
+REDIS_SERVICE_PORT=6379
+TERM=xterm
+HOME=/root
+=====================
+Excellent — this output teaches an important Kubernetes concept. Your Catalogue container does not explicitly define a MongoDB environment variable in the Deployment, but Kubernetes has automatically injected several variables because the mongodb Service already exists.
+
+
+2. Why did Kubernetes create these variables?
+
+This is the Service environment variable mechanism.
+
+Because the mongodb Service existed when the Catalogue Pod was created:
+
+MongoDB Service
+name: mongodb
+ClusterIP: 10.104.73.58
+port: 27017
+        │
+        │ Kubernetes injects Service information
+        ▼
+Catalogue Pod
+
+
+
+3. This is why Service creation order matters here
+
+This is an interesting detail of Kubernetes.
+
+Your Catalogue Pod was created after the MongoDB and Redis Services existed.
+
+Therefore those Service environment variables were available when the Pod started.
+
+But modern Kubernetes applications generally prefer DNS-based service discovery:
+
+mongodb:27017
+redis:6379
+catalogue:8080
+
+rather than relying on Service environment variables.
+
+Why?
+
+Because the Service IP can change if the Service itself is recreated, whereas the Service DNS name remains stable.
+
+
+4. Your current architecture
+
+You now have:
+
+                         Robot Shop
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+       Catalogue Service              MongoDB Service
+       10.96.3.123:8080              10.104.73.58:27017
+              │                             │
+              ▼                             ▼
+       Catalogue Pod                   MongoDB Pod
+       192.168.36.87                  192.168.169.161
+              │                             │
+              │                             ▼
+              │                       MongoDB PVC
+              │                             │
+              │                             ▼
+              │                       Azure Disk
+              │
+              └────── MongoDB communication
+
+
+
+              And Redis is also visible to Catalogue:
+
+Catalogue Pod
+     │
+     └── REDIS_SERVICE_HOST=10.97.211.220
+
+
+5. One more useful experiment
+
+Let's prove that Kubernetes DNS, rather than the ClusterIP, can resolve the MongoDB Service.
+
+From the Catalogue Pod:
+
+kubectl exec -it catalogue-7898454858-4v6fq -- getent hosts mongodb
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it catalogue-7898454858-4v6fq -- getent hosts mongodb
+10.104.73.58    mongodb.robot-shop.svc.cluster.local
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+What happened internally
+
+When Catalogue runs:
+
+getent hosts mongodb
+
+the request goes roughly like this:
+
+Catalogue Pod
+     │
+     │ DNS query: mongodb
+     ▼
+┌──────────────────────┐
+│ CoreDNS              │
+│ kube-system          │
+└──────────┬───────────┘
+           │
+           │ Service lookup
+           ▼
+┌──────────────────────┐
+│ mongodb Service      │
+│ ClusterIP            │
+│ 10.104.73.58         │
+└──────────┬───────────┘
+           │
+           ▼
+       MongoDB Pod
+
+The full Kubernetes DNS name is:
+
+mongodb.robot-shop.svc.cluster.local
+
+But because Catalogue and MongoDB are in the same namespace, the application can simply use:
+
+mongodb
+
+So these are progressively more explicit:
+
+mongodb
+mongodb.robot-shop
+mongodb.robot-shop.svc
+mongodb.robot-shop.svc.cluster.local
+
+For normal application configuration, mongodb:27017 is usually sufficient.
+
+
+
+Catalogue communication architecture is now proven
+                    Catalogue Pod
+                         │
+                         │ DNS: mongodb
+                         ▼
+                      CoreDNS
+                         │
+                         ▼
+                 MongoDB Service
+                 10.104.73.58:27017
+                         │
+                         ▼
+                    MongoDB Pod
+                         │
+                         ▼
+                   MongoDB PVC
+                         │
+                         ▼
+                  Azure Managed Disk
+
+And separately:
+
+Catalogue Pod
+     │
+     │ DNS: redis
+     ▼
+Redis Service
+10.97.211.220:6379
+     │
+     ▼
+Redis Pod
+     │
+     ▼
+Redis PVC → Azure Disk
+One important observation
+
+Your Catalogue Deployment itself doesn't explicitly contain:
+
+MONGODB_HOST: mongodb
+
+yet Kubernetes provides Service environment variables automatically, and CoreDNS provides DNS-based discovery.
+
+That's a good practical example of why Kubernetes Services are central to microservice architecture.
+
+Catalogue is now complete ✅
+
+You have verified:
+
+Deployment → Pod ✅
+Service → Pod selector ✅
+EndpointSlice → Pod endpoint ✅
+Service ClusterIP ✅
+Kubernetes DNS → MongoDB Service ✅
+Catalogue → MongoDB service discovery ✅
+MongoDB → persistent Azure storage ✅
+

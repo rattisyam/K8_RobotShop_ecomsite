@@ -49,6 +49,7 @@ Actually the catalogue application needs to resolve:
     mongodb
 which will be the Kubernetes Service name we create.
 
+
 User:
 User is also Node.js/Express.
 

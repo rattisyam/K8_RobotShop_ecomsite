@@ -1,0 +1,79 @@
+user service also can be deployment and service
+it will connect to redis.
+
+or the Robot Shop User component, the high-level architecture is:
+
+                         ROBOT SHOP
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │   User Service  │
+                    │    :8080        │
+                    │ ClusterIP       │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │    User Pod     │
+                    │ Node.js/Express │
+                    │     :8080       │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴─────────┐
+                    │                  │
+              MongoDB connection   Redis connection
+                    │                  │
+                    ▼                  ▼
+             ┌─────────────┐    ┌─────────────┐
+             │   MongoDB   │    │    Redis    │
+             │   Service   │    │   Service   │
+             │   :27017    │    │    :6379    │
+             └──────┬──────┘    └──────┬──────┘
+                    │                  │
+                    ▼                  ▼
+             ┌─────────────┐    ┌─────────────┐
+             │ MongoDB Pod │    │  Redis Pod  │
+             └──────┬──────┘    └──────┬──────┘
+                    │                  │
+                    ▼                  ▼
+              MongoDB PVC        Redis PVC
+                    │                  │
+                    ▼                  ▼
+              Azure Disk          Azure Disk
+Kubernetes object view
+
+For User, we'll create:
+
+User
+ │
+ ├── Deployment
+ │      └── user Pod
+ │             │
+ │             ├──→ mongodb:27017
+ │             │
+ │             └──→ redis:6379
+ │
+ └── Service
+        └── user:8080
+What you'll learn from User
+
+This component is particularly useful because it has two dependencies:
+
+User Pod
+  │
+  ├── Service DNS → mongodb
+  │
+  └── Service DNS → redis
+
+So compared with Catalogue:
+
+Catalogue → MongoDB
+
+User gives you:
+
+User → MongoDB
+     → Redis
+
+This is a good opportunity to understand one microservice communicating with multiple Kubernetes Services.
+
+
