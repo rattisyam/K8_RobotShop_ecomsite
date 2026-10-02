@@ -1,0 +1,68 @@
+In Robot Shop, MySQL is used by the Shipping microservice. It is not the main database for the entire application.
+
+The simplified architecture is:
+
+                    Robot Shop
+                        │
+        ┌───────────────┼────────────────┐
+        │               │                │
+     Catalogue         User             Cart
+        │               │                │
+     MongoDB        MongoDB + Redis     Redis
+                                         
+                        │
+                        ▼
+                    Shipping
+                        │
+                        ▼
+                      MySQL
+
+What does Shipping need MySQL for?
+
+The Shipping service needs to store/retrieve shipping-related information, such as information associated with shipping orders and delivery processing.
+
+So the pattern is:
+
+Shipping Pod
+     │
+     │ MySQL :3306
+     ▼
+MySQL Service
+     │
+     ▼
+MySQL Pod
+     │
+     ▼
+PVC
+     │
+     ▼
+Azure Managed Disk
+
+
+Why doesn't Robot Shop use MongoDB everywhere?
+
+That's actually one of the useful things about this project.
+
+Robot Shop intentionally demonstrates a polyglot persistence architecture — different microservices can use databases appropriate to their requirements.
+
+
+Why NET_ADMIN is there?
+
+This part:
+
+securityContext:
+  capabilities:
+    add:
+      - NET_ADMIN
+
+gives the container the Linux NET_ADMIN capability.
+
+The Robot Shop chart comments:
+
+# added for Istio
+
+So this is related to service-mesh/network configuration, not MySQL database functionality itself.
+
+
+
+

@@ -114,6 +114,17 @@ robot-shop-k8s/
     └── service.yaml
 
 
+
+7.mysql
+
+8.shipping
+9.ratings
+10.RabbitMQ
+11.Payment
+12. Dispatch
+13.web
+14. ingress
+
 MongoDB PVC learnings:
 
 
