@@ -75,3 +75,98 @@ PV
    ↓
 Azure Disk
 
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get statefulset
+NAME    READY   AGE
+redis   1/1     32s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl apply -f redisservice.yaml
+service/redis created
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get svc
+NAME      TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
+mongodb   ClusterIP   10.104.73.58    <none>        27017/TCP   34m
+redis     ClusterIP   10.97.211.220   <none>        6379/TCP    4s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get endpoints redis
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME    ENDPOINTS              AGE
+redis   192.168.169.165:6379   14s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+verification:
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get statefulset
+NAME    READY   AGE
+redis   1/1     2m9s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-8t6fg   1/1     Running   0          28m
+redis-0                    1/1     Running   0          2m17s
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pvc
+NAME           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-redis-0   Bound    pvc-b118554a-e6f6-4bd8-bb09-4dc1577b12f8   1Gi        RWO            standard       <unset>                 2m21s
+mongodb-pvc    Bound    pvc-fb0d8e4f-1f92-4c13-86ca-bdd0a270316c   1Gi        RWO            standard       <unset>                 51m
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                         STORAGECLASS    VOLUMEATTRIBUTESCLASS   REASON   AGE
+postgres-pv                                5Gi        RWO            Retain           Bound    three-tier-app/postgres-pvc   local-storage   <unset>                          2d5h
+pvc-b118554a-e6f6-4bd8-bb09-4dc1577b12f8   1Gi        RWO            Retain           Bound    robot-shop/data-redis-0       standard        <unset>                          2m24s
+pvc-fb0d8e4f-1f92-4c13-86ca-bdd0a270316c   1Gi        RWO            Retain           Bound    robot-shop/mongodb-pvc        standard        <unset>                          48m
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli
+127.0.0.1:6379> SET testkey "hello-redis"
+OK
+127.0.0.1:6379> GET testkey
+"hello-redis"
+127.0.0.1:6379>
+
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -w
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-8t6fg   1/1     Running   0          30m
+redis-0                    1/1     Running   0          3m44s
+^Cazureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl delete pod redis-0
+pod "redis-0" deleted from robot-shop namespace
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl get pods -w
+NAME                       READY   STATUS    RESTARTS   AGE
+mongodb-6465489f5f-8t6fg   1/1     Running   0          30m
+redis-0                    1/1     Running   0          3s
+^Cazureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli
+
+verification inside the conatiner of redi.
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli CONFIG GET dir
+1) "dir"
+2) "/data"
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- redis-cli CONFIG GET dbfilename
+1) "dbfilename"
+2) "dump.rdb"
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$ kubectl exec -it redis-0 -- df -h /mnt/redis
+df: Warning: cannot read table of mounted file systems: No such file or directory
+Filesystem      Size  Used Avail Use% Mounted on
+-               974M  280K  958M   1% /mnt/redis
+azureuser@devops-agent:~/robotshop/K8_RobotShop_ecomsite/k8manifests$
+
+
+We are checking inside the Redis container to determine:
+
+Where Redis actually writes its data
+Whether that directory is backed by your PVC/Azure Disk
+
+what will happen now:
+StatefulSet redis
+      │
+      ▼
+Pod redis-0
+      │
+      │ mounts
+      ▼
+PVC data-redis-0
+      │
+      ▼
+PV
+      │
+      ▼
+Azure Managed Disk
+
+
